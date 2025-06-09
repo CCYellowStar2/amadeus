@@ -1,0 +1,6 @@
+- Only modify code directly relevant to the specific request. Avoid changing unrelated functionality.
+- Break problems into smaller steps. Think through each step separately before implementing.
+- Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
+- Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
+- 以更少的代码量和修改量为优化目标
+- 增加任何数据状态useEffect，务必保证职责唯一性和正交性，能复用则复用现有，否则你会被fire

@@ -1,0 +1,915 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
+import { Textarea } from '../ui/Textarea';
+import { Checkbox } from '../ui/Checkbox';
+import { Select } from '../ui/Select';
+import { Loader2, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '../ui/Badge';
+import { cn } from '../../lib/utils';
+
+// Add type declaration for window.electronAPI
+declare global {
+  interface Window {
+    electronAPI?: {
+      getApiPort: () => Promise<number>;
+    };
+  }
+}
+
+interface FormRendererProps {
+  schema: any;
+  initialData: any;
+  onSubmit: (values: any) => void;
+  onCancel?: () => void;
+}
+
+const FormRenderer: React.FC<FormRendererProps> = ({ 
+  schema,
+  initialData,
+  onSubmit,
+  onCancel,
+}) => {
+  const { t } = useTranslation();
+
+  const { register, handleSubmit: reactHookFormSubmit, setValue, watch, formState: { errors }, reset, control } = useForm({
+    defaultValues: initialData,
+    mode: 'onSubmit',
+    reValidateMode: 'onChange'
+  });
+
+  // Reset form when initialData changes
+  useEffect(() => {
+    if (initialData) {
+      reset(initialData);
+    }
+  }, [initialData, reset]);
+
+  // 只记录当前焦点的字段路径
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  // 使用单个定时器
+  const timerRef = useRef<NodeJS.Timeout>();
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  // 创建一个处理提交的函数
+  const handleFormSubmit = reactHookFormSubmit(
+    // 验证通过时的处理函数
+    async (data: any) => {
+      try {
+        await onSubmit(data);
+      } catch (error) {
+        console.error('Form submission error:', error);
+        // 提交出错时，延时2秒后重置表单
+        setTimeout(() => {
+          reset(initialData);
+          // 如果有取消回调，也调用它
+          onCancel?.();
+        }, 2000);
+      }
+    },
+    // 验证失败时的处理函数
+    (errors) => {
+      console.error('Form validation errors:', errors);
+      // 验证失败时，延时2秒后重置表单
+      setTimeout(() => {
+        reset(initialData);
+        // 如果有取消回调，也调用它
+        onCancel?.();
+      }, 2000);
+    }
+  );
+
+  const getExampleDisplay = (example: any) => {
+    if (typeof example === 'object' && example.title && example.const !== undefined) {
+      return {
+        label: example.title,
+        value: example.const
+      };
+    }
+    return {
+      label: String(example),
+      value: example
+    };
+  };
+
+  const handleFieldChange = (fieldPath: string, value: any) => {
+    setValue(fieldPath, value, { 
+      shouldDirty: true,
+      shouldValidate: true,
+      shouldTouch: true
+    });
+
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    timerRef.current = setTimeout(() => {
+      if (focusedField !== fieldPath) {
+        const formValues = watch();
+        handleFormSubmit({ ...formValues, [fieldPath]: value });
+      }
+    }, 500);
+  };
+
+  const handleFieldFocus = (fieldPath: string) => {
+    setFocusedField(fieldPath);
+  };
+
+  const handleFieldBlur = (fieldPath: string) => {
+    setFocusedField(null);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      delete timerRef.current;
+      const formValues = watch();
+      handleFormSubmit({ ...formValues, [fieldPath]: watch(fieldPath) });
+    }
+  };
+
+  if (!schema) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  const isFieldRequired = (fieldName: string) => {
+    return schema.required?.includes(fieldName) ?? false;
+  };
+
+  const getValidationRules = (field: any, key: string) => {
+    const rules: any = {};
+
+    if (isFieldRequired(key)) {
+      rules.required = t('validation.required');
+    }
+
+    if (field.type === 'string') {
+      if (field.minLength !== undefined) {
+        rules.minLength = {
+          value: field.minLength,
+          message: t('validation.minLength', { min: field.minLength })
+        };
+      }
+
+      if (field.maxLength !== undefined) {
+        rules.maxLength = {
+          value: field.maxLength,
+          message: t('validation.maxLength', { max: field.maxLength })
+        };
+      }
+
+      if (field.format === 'uri') {
+        rules.pattern = {
+          value: /^https?:\/\/.+/,
+          message: t('validation.uri')
+        };
+      }
+
+      if (field.format === 'hostname') {
+        rules.pattern = {
+          value: /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/,
+          message: t('validation.hostname')
+        };
+      }
+
+      if (field.pattern) {
+        rules.pattern = {
+          value: new RegExp(field.pattern),
+          message: field.patternError || t('validation.pattern')
+        };
+      }
+    }
+
+    if (field.type === 'integer' || field.type === 'number') {
+      rules.valueAsNumber = true;
+
+      if (field.minimum !== undefined) {
+        rules.min = {
+          value: field.minimum,
+          message: t('validation.min', { min: field.minimum })
+        };
+      }
+
+      if (field.maximum !== undefined) {
+        rules.max = {
+          value: field.maximum,
+          message: t('validation.max', { max: field.maximum })
+        };
+      }
+
+      if (field.multipleOf !== undefined) {
+        rules.validate = {
+          multipleOf: (value: number) => 
+            value % field.multipleOf === 0 || 
+            t('validation.multipleOf', { n: field.multipleOf })
+        };
+      }
+    }
+
+    if (field.type === 'array') {
+      const validates: any = {};
+
+      if (field.minItems !== undefined) {
+        validates.minItems = (value: any[]) => 
+          (value && value.length >= field.minItems) || 
+          t('validation.minItems', { min: field.minItems });
+      }
+
+      if (field.maxItems !== undefined) {
+        validates.maxItems = (value: any[]) => 
+          (!value || value.length <= field.maxItems) || 
+          t('validation.maxItems', { max: field.maxItems });
+      }
+
+      if (field.uniqueItems === true) {
+        validates.uniqueItems = (value: any[]) => {
+          if (!value || value.length <= 1) return true;
+          const uniqueValues = new Set(
+            value.map(item => typeof item === 'object' ? JSON.stringify(item) : item)
+          );
+          return uniqueValues.size === value.length || t('validation.uniqueItems');
+        };
+      }
+
+      if (Object.keys(validates).length > 0) {
+        rules.validate = validates;
+      }
+    }
+
+    if (field.enum) {
+      rules.validate = {
+        ...rules.validate,
+        enum: (value: any) => 
+          !value || field.enum.includes(value) || 
+          t('validation.enum')
+      };
+    }
+
+    return rules;
+  };
+
+  const renderField = (key: string, field: any, path = '') => {
+    const fieldPath = path ? `${path}.${key}` : key;
+    const value = watch(fieldPath);
+    const error = errors[fieldPath];
+
+    // Helper function to get default value for array items
+    const getDefaultArrayItemValue = (itemSchema: any) => {
+      if (itemSchema.type === 'string') return itemSchema.default || '';
+      if (itemSchema.type === 'number' || itemSchema.type === 'integer') return itemSchema.default || 0;
+      if (itemSchema.type === 'boolean') return itemSchema.default || false;
+      if (itemSchema.type === 'object') {
+        const defaultObj: any = {};
+        if (itemSchema.properties) {
+          Object.keys(itemSchema.properties).forEach(prop => {
+            defaultObj[prop] = getDefaultArrayItemValue(itemSchema.properties[prop]);
+          });
+        }
+        return defaultObj;
+      }
+      return '';
+    };
+
+    // Helper function to get options from oneOf
+    const getOptionsFromOneOf = (schema: any) => {
+      if (!schema.oneOf) return null;
+      return schema.oneOf.map((option: any) => ({
+        value: option.const,
+        label: option.title || option.const
+      }));
+    };
+
+    // Special handling for name field
+    if (key === 'name') {
+      return (
+        <Input
+          type="text"
+          id={fieldPath}
+          {...register(fieldPath, getValidationRules(field, key))}
+          value={value || field.default || ''}
+          placeholder={field.placeholder || t('common.pleaseSelect')}
+          className={error ? 'border-error' : ''}
+          onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+          onFocus={() => handleFieldFocus(fieldPath)}
+          onBlur={() => handleFieldBlur(fieldPath)}
+        />
+      );
+    }
+
+    switch (field.type) {
+      case 'array':
+        return <ArrayField 
+          key={fieldPath}
+          fieldPath={fieldPath} 
+          field={field}
+          control={control}
+          register={register}
+          setValue={setValue}
+          watch={watch}
+          errors={errors}
+          getDefaultArrayItemValue={getDefaultArrayItemValue}
+          renderField={renderField}
+          isFieldRequired={isFieldRequired}
+          t={t}
+          handleFormSubmit={handleFormSubmit}
+        />;
+
+      case 'string':
+        if (field.format === 'textarea') {
+          return (
+            <Textarea
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
+              value={value || field.default || ''}
+              placeholder={field.placeholder || ''}
+              className={error ? 'border-error' : ''}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              onFocus={() => handleFieldFocus(fieldPath)}
+              onBlur={() => handleFieldBlur(fieldPath)}
+            />
+          );
+        }
+        
+        const options = getOptionsFromOneOf(field);
+        if (options) {
+          const val = value ?? field.default;
+          return (
+            <Select 
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
+              value={options.some((o: { value: any; }) => o.value === val) ? String(val ?? '') : ''}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              className={error ? 'border-error' : ''}
+            >
+              <option value="" disabled>{field.placeholder || t('common.pleaseSelect')}</option>
+              {options.map((option: { value: string; label: string }) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          );
+        }
+
+        if (field.enum) {
+          const val = value ?? field.default;
+          return (
+            <Select 
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
+              value={field.enum.includes(val) ? String(val ?? '') : ''}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              className={error ? 'border-error' : ''}
+            >
+              <option value="" disabled>{field.placeholder || t('common.pleaseSelect')}</option>
+              {field.enum.map((value: string, index: number) => (
+                <option key={value} value={value}>
+                  {field.enumNames?.[index] || value}
+                </option>
+              ))}
+            </Select>
+          );
+        }
+
+        if (field.format === 'password') {
+          return (
+            <Input
+              type="password"
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
+              value={value || field.default || ''}
+              placeholder={field.placeholder || ''}
+              className={error ? 'border-error' : ''}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              onFocus={() => handleFieldFocus(fieldPath)}
+              onBlur={() => handleFieldBlur(fieldPath)}
+              autoComplete="new-password"
+            />
+          );
+        }
+
+        const suggestions = field.suggestions || [];
+
+        return (
+          <div>
+            <Input
+              type="text"
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
+              value={value || field.default || ''}
+              placeholder={field.placeholder || ''}
+              className={error ? 'border-error' : ''}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              onFocus={() => handleFieldFocus(fieldPath)}
+              onBlur={() => handleFieldBlur(fieldPath)}
+            />
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {suggestions.map((item: any, index: number) => {
+                  const { label, value: suggestionValue } = getExampleDisplay(item);
+                  const isSelected = value === suggestionValue;
+                  return (
+                    <Badge
+                      key={index}
+                      variant="outline"
+                      className={cn(
+                        "cursor-pointer transition-all",
+                        isSelected 
+                          ? "bg-primary/10 text-primary border-primary/40 hover:bg-primary/10 hover:border-primary/60" 
+                          : "hover:bg-muted"
+                      )}
+                      onClick={() => handleFieldChange(fieldPath, suggestionValue)}
+                    >
+                      {label}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      
+      case 'integer':
+      case 'number':
+        return (
+          <Input
+            type="number"
+            id={fieldPath}
+            {...register(fieldPath, getValidationRules(field, key))}
+            value={value || field.default || ''}
+            placeholder={field.placeholder || ''}
+            min={field.minimum}
+            max={field.maximum}
+            step={field.multipleOf || (field.type === 'integer' ? 1 : 'any')}
+            className={error ? 'border-error' : ''}
+            onChange={(e) => handleFieldChange(fieldPath, field.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
+            onFocus={() => handleFieldFocus(fieldPath)}
+            onBlur={() => handleFieldBlur(fieldPath)}
+          />
+        );
+      
+      case 'boolean':
+        return (
+          <Checkbox
+            id={fieldPath}
+            {...register(fieldPath, getValidationRules(field, key))}
+            defaultChecked={value ?? field.default ?? false}
+            onChange={(e) => {
+              const newValue = e.target.checked;
+              setValue(fieldPath, newValue, {
+                shouldDirty: true,
+                shouldValidate: true,
+                shouldTouch: true
+              });
+              // 立即提交 checkbox 的变化
+              const formValues = watch();
+              handleFormSubmit({ ...formValues, [fieldPath]: newValue });
+            }}
+          />
+        );
+      
+      case 'object':
+        return (
+          <div className="space-y-4 border border-border rounded-md p-4">
+            {field.properties && Object.entries(field.properties).map(([subKey, subField]: [string, any]) => (
+              <div key={subKey} className="space-y-2">
+                <label 
+                  htmlFor={`${fieldPath}.${subKey}`} 
+                  className="block text-sm font-medium cursor-default"
+                  onClick={(e) => e.preventDefault()}
+                >
+                  {subField.title || subKey}
+                  {field.required?.includes(subKey) && <span className="text-error ml-1">*</span>}
+                </label>
+                {subField.description && (
+                  <p className="text-xs text-muted-foreground mb-2">{subField.description}</p>
+                )}
+                {renderField(subKey, subField, fieldPath)}
+                {errors[`${fieldPath}.${subKey}`] && (
+                  <p className="text-sm text-error">{errors[`${fieldPath}.${subKey}`]?.message?.toString()}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      
+      default:
+        return (
+          <Input
+            type="text"
+            id={fieldPath}
+            {...register(fieldPath, getValidationRules(field, key))}
+            value={value || field.default || ''}
+            className={error ? 'border-error' : ''}
+          />
+        );
+    }
+  };
+
+  return (
+    <form onSubmit={handleFormSubmit} className="space-y-6">
+      {schema && schema.properties && Object.entries(schema.properties).map(([key, field]: [string, any]) => (
+        <div key={key} className="space-y-2">
+          <label 
+            htmlFor={key} 
+            className="block text-sm font-medium cursor-default"
+            onClick={(e) => e.preventDefault()}
+          >
+            {field.title || key}
+            {isFieldRequired(key) && <span className="text-error ml-1">*</span>}
+          </label>
+          {field.description && (
+            <p className="text-xs text-muted-foreground mb-2">{field.description}</p>
+          )}
+          <div className="relative">
+            {renderField(key, field)}
+            {errors[key] && (
+              <p className="text-sm text-error mt-1">{errors[key]?.message?.toString()}</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </form>
+  );
+};
+
+// ArrayField component for handling array type fields
+interface ArrayFieldProps {
+  fieldPath: string;
+  field: any;
+  control: any;
+  register: any;
+  setValue: any;
+  watch: any;
+  errors: any;
+  getDefaultArrayItemValue: (itemSchema: any) => any;
+  renderField: (key: string, field: any, path?: string) => React.ReactNode;
+  isFieldRequired: (fieldName: string) => boolean;
+  t: (key: string, options?: any) => string;
+  handleFormSubmit: (data: any) => void;
+}
+
+const ArrayField: React.FC<ArrayFieldProps> = ({
+  fieldPath,
+  field,
+  control,
+  register,
+  setValue,
+  watch,
+  errors,
+  getDefaultArrayItemValue,
+  renderField,
+  isFieldRequired,
+  t,
+  handleFormSubmit
+}) => {
+  const { fields, append, remove, move } = useFieldArray({
+    control,
+    name: fieldPath,
+  });
+
+  const watchedArray = watch(fieldPath);
+  const arrayError = errors[fieldPath];
+  const [newItemValue, setNewItemValue] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout>();
+
+  // Helper function to get options from oneOf or enum
+  const getOptionsFromOneOf = (schema: any) => {
+    if (schema.oneOf) {
+      return schema.oneOf.map((option: any) => ({
+        value: option.const,
+        label: option.title || option.const
+      }));
+    }
+    if (schema.enum) {
+      return schema.enum.map((value: string, index: number) => ({
+        value: value,
+        label: schema.enumNames?.[index] || value
+      }));
+    }
+    return null;
+  };
+
+  const handleArrayChange = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    timerRef.current = setTimeout(() => {
+      if (!isFocused) {
+        const currentValue = watch(fieldPath);
+        handleFormSubmit({ [fieldPath]: currentValue });
+      }
+    }, 500);
+  };
+
+  const handleRemove = (index: number) => {
+    remove(index);
+    const currentValue = watch(fieldPath);
+    handleFormSubmit({ [fieldPath]: currentValue });
+  };
+
+  const handleMove = (from: number, to: number) => {
+    move(from, to);
+    handleArrayChange();
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      delete timerRef.current;
+      const currentValue = watch(fieldPath);
+      handleFormSubmit({ [fieldPath]: currentValue });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addItem();
+    }
+  };
+
+  const addItem = () => {
+    if (!newItemValue.trim()) return;
+    
+    const defaultValue = field.items.type === 'string' 
+      ? newItemValue.trim()
+      : getDefaultArrayItemValue(field.items);
+    
+    if (field.uniqueItems) {
+      const isDuplicate = watchedArray.some((item: any) => 
+        JSON.stringify(item) === JSON.stringify(defaultValue)
+      );
+      if (isDuplicate) {
+        return;
+      }
+    }
+    
+    append(defaultValue);
+    setNewItemValue('');
+    handleArrayChange();
+  };
+
+  // Helper function to get example display value
+  const getExampleDisplay = (example: any) => {
+    if (typeof example === 'object' && example.title && example.const) {
+      return {
+        label: example.title,
+        value: example.const
+      };
+    }
+    return {
+      label: example,
+      value: example
+    };
+  };
+
+  const canAddMore = !field.maxItems || fields.length < field.maxItems;
+  const canRemove = !field.minItems || fields.length > field.minItems;
+
+  // For primitive types (string, number, boolean)
+  if (field.items.type !== 'object') {
+    const options = getOptionsFromOneOf(field.items);
+    const suggestions = field.suggestions || [];
+    
+    return (
+      <div className="space-y-2" onFocus={handleFocus} onBlur={handleBlur}>
+        <div className="flex flex-wrap gap-2 p-2 border border-input rounded-md bg-background min-h-[42px]">
+          {fields.map((item, index) => {
+            const value = watchedArray[index];
+            const option = options?.find((opt: any) => opt.value === value);
+            return (
+              <Badge
+                key={item.id}
+                variant="outline"
+                onRemove={canRemove ? () => {
+                  handleRemove(index);
+                } : undefined}
+                className="flex items-center gap-1 bg-primary/10 text-primary border-primary/40 hover:bg-primary/10 hover:border-primary/60 transition-all"
+              >
+                {option?.label || value}
+              </Badge>
+            );
+          })}
+          {canAddMore && !options && (
+            <input
+              type="text"
+              value={newItemValue}
+              onChange={(e) => setNewItemValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={field.addPlaceholder}
+              className="flex-1 min-w-[120px] bg-transparent outline-none text-sm"
+            />
+          )}
+        </div>
+
+        {/* 显示enum选项或suggestions */}
+        {(options || (suggestions.length > 0)) && (
+          <div className="flex flex-wrap gap-1.5">
+            {[...(options || suggestions)]
+              .sort((a: any, b: any) => {
+                const aValue = options ? a.value : getExampleDisplay(a).value;
+                const bValue = options ? b.value : getExampleDisplay(b).value;
+                const aIsSelected = watchedArray?.includes(aValue) ?? false;
+                const bIsSelected = watchedArray?.includes(bValue) ?? false;
+                return +bIsSelected - +aIsSelected;
+              })
+              .map((item: any) => {
+                const { label, value } = options ? item : getExampleDisplay(item);
+                const isSelected = watchedArray?.includes(value) ?? false;
+                return (
+                  <Badge
+                    key={value}
+                    variant="outline"
+                    className={cn(
+                      "cursor-pointer transition-all",
+                      isSelected 
+                        ? "bg-primary/10 text-primary border-primary/40 hover:bg-primary/10 hover:border-primary/60" 
+                        : "hover:bg-muted"
+                    )}
+                    onClick={() => {
+                      if (isSelected) {
+                        const index = watchedArray?.indexOf(value) ?? -1;
+                        if (index > -1) {
+                          handleRemove(index);
+                        }
+                      } else if (canAddMore) {
+                        append(value);
+                        const currentValue = watch(fieldPath);
+                        handleFormSubmit({ [fieldPath]: currentValue });
+                      }
+                    }}
+                  >
+                    {label}
+                  </Badge>
+                );
+              })}
+          </div>
+        )}
+        
+        {/* Array info */}
+        {(field.minItems !== undefined || field.maxItems !== undefined || (!options && canAddMore)) && (
+          <div className="flex justify-between items-center text-xs text-muted-foreground">
+            <div>
+              {field.minItems !== undefined && `Min: ${field.minItems}`}
+              {field.maxItems !== undefined && ` Max: ${field.maxItems}`}
+            </div>
+            {canAddMore && !options && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={addItem}
+                disabled={!newItemValue.trim()}
+                className="h-6 px-2"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {field.addText || t('array.add')}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Array validation errors */}
+        {arrayError && (
+          <p className="text-sm text-error">{arrayError?.message?.toString()}</p>
+        )}
+      </div>
+    );
+  }
+
+  // For object types, keep the existing card-based layout
+  return (
+    <div className="space-y-3" onFocus={handleFocus} onBlur={handleBlur}>
+      {/* Array items */}
+      {fields.length > 0 && (
+        <div className="space-y-3">
+          {fields.map((_, index) => (
+            <div key={fields[index].id} className="space-y-3 p-4 border border-border rounded-md bg-background">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium">
+                  {field.items.title || `${t('common.item')} ${index + 1}`}
+                </h4>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleMove(index, index - 1)}
+                      disabled={index === 0}
+                      className="p-1 h-8 w-8"
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleMove(index, index + 1)}
+                      disabled={index === fields.length - 1}
+                      className="p-1 h-8 w-8"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRemove(index)}
+                    disabled={!canRemove}
+                    className="p-1 h-8 w-8 text-error hover:text-error"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                {field.items.properties && Object.entries(field.items.properties).map(([subKey, subField]: [string, any]) => {
+                  const subFieldPath = `${fieldPath}.${index}.${subKey}`;
+                  const subError = errors[subFieldPath];
+                  
+                  return (
+                    <div key={subKey} className="space-y-2">
+                      <label htmlFor={subFieldPath} className="block text-sm font-medium">
+                        {subField.title || subKey}
+                        {field.items.required?.includes(subKey) && <span className="text-error ml-1">*</span>}
+                      </label>
+                      {subField.description && (
+                        <p className="text-xs text-muted-foreground mb-2">{subField.description}</p>
+                      )}
+                      {renderField(subKey, subField, `${fieldPath}.${index}`)}
+                      {subError && (
+                        <p className="text-sm text-error">{subError?.message?.toString()}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {fields.length === 0 && (
+        <div className="text-center py-8 border-2 border-dashed border-border rounded-md">
+          <p className="text-muted-foreground text-sm">
+            {field.emptyText || t('array.empty', { name: field.title || fieldPath })}
+          </p>
+        </div>
+      )}
+
+      {/* Add button */}
+      <div className="flex justify-between items-center">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            append(getDefaultArrayItemValue(field.items));
+            handleArrayChange();
+          }}
+          disabled={!canAddMore}
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          {field.addText || t('array.add', { name: field.items.title || t('common.item') })}
+        </Button>
+        
+        {/* Array info */}
+        <div className="text-xs text-muted-foreground">
+          {fields.length} {t('array.itemCount', { count: fields.length })}
+          {field.minItems !== undefined && ` (${t('array.min')}: ${field.minItems})`}
+          {field.maxItems !== undefined && ` (${t('array.max')}: ${field.maxItems})`}
+        </div>
+      </div>
+
+      {/* Array validation errors */}
+      {arrayError && (
+        <p className="text-sm text-error">{arrayError?.message?.toString()}</p>
+      )}
+    </div>
+  );
+};
+
+export default FormRenderer;

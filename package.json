@@ -1,0 +1,92 @@
+{
+  "name": "electron-config-manager",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "description": "A configuration manager application built with Electron",
+  "author": {
+    "name": "Your Name",
+    "email": "your.email@example.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/electron-config-manager.git"
+  },
+  "scripts": {
+    "dev": "npm run backend:build && concurrently \"PORT=38178 DEV_MODE=true node backend/run.js\" \"sleep 2 && vite --port 5173\"",
+    "frontend:build": "vite build",
+    "backend:build": "node backend/build.js",
+    "electron:build": "electron-builder",
+    "build": "npm run frontend:build && npm run backend:build && npm run electron:build",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.18",
+    "@heroicons/react": "^2.1.1",
+    "clsx": "^2.1.0",
+    "cors": "^2.8.5",
+    "electron-store": "^8.1.0",
+    "express": "^4.18.3",
+    "fs-extra": "^11.2.0",
+    "i18next": "^23.10.1",
+    "i18next-browser-languagedetector": "^7.2.0",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.50.1",
+    "react-hot-toast": "^2.4.1",
+    "react-i18next": "^14.1.0",
+    "tailwind-merge": "^2.2.1",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.18",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^29.1.4",
+    "electron-builder": "^24.13.3",
+    "eslint": "^9.9.1",
+    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
+    "eslint-plugin-react-refresh": "^0.4.11",
+    "globals": "^15.9.0",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^8.3.0",
+    "vite": "^5.4.2"
+  },
+  "build": {
+    "appId": "com.electron.configmanager",
+    "productName": "Config Manager",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "publish": null,
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "app/backend",
+        "filter": [
+          "!**/.git/**"
+        ]
+      }
+    ]
+  }
+}

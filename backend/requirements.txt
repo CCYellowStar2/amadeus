@@ -1,0 +1,17 @@
+fastapi
+openai
+# unqlite
+# plyvel
+# lvldb
+lmdb
+sqlite-vec
+# aiohttp
+# kuzu
+aiolimiter
+beautifulsoup4
+lxml
+pillow
+pyyaml
+uvicorn
+jsonschema
+loguru
