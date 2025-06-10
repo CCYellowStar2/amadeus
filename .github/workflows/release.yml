@@ -47,17 +47,18 @@ jobs:
           echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.cer
           echo "$P12_BASE64" | base64 --decode > certificate.p12
           
-          # Create temporary keychain
+          # Add self-signed certificate to system keychain and trust it
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certificate.cer
+
+          # Create temporary keychain for code signing
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           
-          # Import certificates
-          security import certificate.cer -k build.keychain -T /usr/bin/codesign
-          sudo security add-trusted-cert -d -r trustAsRoot -k build.keychain certificate.cer
+          # Import p12 to temporary keychain
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
           
-          # Set key partition list
+          # Set key partition list to allow codesign access
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           
           # Clean up certificate files
