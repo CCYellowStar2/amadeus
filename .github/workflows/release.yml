@@ -57,27 +57,16 @@ jobs:
           curl -o AppleWWDRCA.cer https://www.apple.com/certificateauthority/AppleWWDRCA.cer
           security import AppleWWDRCA.cer -k build.keychain -T /usr/bin/codesign
           
-          # Import certificates with trust settings
-          security import certificate.cer -k build.keychain -T /usr/bin/codesign -A
-          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -A
+          # Import user certificate and p12 file
+          security import certificate.cer -k build.keychain -T /usr/bin/codesign
+          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
           
-          # Add certificates to system keychain for trust chain
-          sudo security add-trusted-cert -d -r trustRoot -k /System/Library/Keychains/SystemRootCertificates.keychain AppleWWDRCA.cer || true
-          
-          # Set key partition list and trust settings
+          # Allow codesign to access the imported key
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           
-          # Explicitly trust the developer certificate
-          CERT_IDENTITY=$(security find-identity -v build.keychain | grep "ArcheMind-Dev" | head -1 | awk '{print $2}')
-          if [ ! -z "$CERT_IDENTITY" ]; then
-            echo "Found certificate identity: $CERT_IDENTITY"
-            security set-generic-password -a "$CERT_IDENTITY" -s build_keychain_cred -w "$KEYCHAIN_PASSWORD" build.keychain
-          fi
-          
-          # Verify certificate is available
-          security find-identity -v build.keychain
-          echo "Available identities:"
-          security find-identity -p codesigning -v build.keychain
+          # Verify identities
+          echo "Available identities in keychain:"
+          security find-identity -v -p codesigning build.keychain
           
           # Clean up certificate files
           rm certificate.cer certificate.p12 AppleWWDRCA.cer
