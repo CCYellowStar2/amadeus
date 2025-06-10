@@ -81,7 +81,11 @@
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "identity": "ArcheMind-Dev"
+      "identity": "ArcheMind-Dev",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "gatekeeperAssess": false
     },
     "win": {
       "target": ["nsis"]
