@@ -12,11 +12,11 @@ let serverStarted = false;
 // 默认服务器配置
 const defaultServerConfig = {
   // 相对于安装路径的执行路径
-  execPath: 'app/backend',
+  execPath: 'backend',
   // 启动命令和参数
-  nt_command: '.venv\\bin\\python.exe',
-  posix_command: '.venv/bin/python',
-  args: ['main.py'],
+  nt_command: 'backend.exe',
+  posix_command: './backend',
+  args: [],
   // 环境变量
   env: {
     ELECTRON: 'true',
@@ -57,7 +57,7 @@ async function startServer(config = defaultServerConfig) {
   // 解析服务器脚本路径
   const basePath = app.isPackaged
     ? join(process.resourcesPath, serverConfig.execPath)
-    : join(__dirname, '..', serverConfig.execPath.replace('app/', ''));
+    : join(__dirname, '..', 'dist', serverConfig.execPath);
   
   // 解析完整的参数路径
   const fullArgs = serverConfig.args.map(arg => {
@@ -89,32 +89,32 @@ async function startServer(config = defaultServerConfig) {
     });
 
     let buffer = '';
-    serverProcess.stdout.on('data', (data) => {
+    let portResolved = false; // 添加标志位防止重复匹配
+    
+    const checkPortInBuffer = (data) => {
+      if (portResolved) return; // 如果已经匹配成功，直接返回
+      
       buffer += data.toString();
-      console.log('[Server]', data.toString().trim());
       
       // 从累积的缓冲区中查找端口
       const portMatch = buffer.match(serverConfig.portRegex);
-      if (portMatch) {
+      if (portMatch && !portResolved) {
+        portResolved = true; // 设置标志位，防止重复匹配
         serverPort = parseInt(portMatch[1], 10);
         serverStarted = true;
         resolve(serverPort);
         buffer = ''; // 找到端口后清除缓冲区
       }
+    };
+
+    serverProcess.stdout.on('data', (data) => {
+      console.log('[Server]', data.toString().trim());
+      checkPortInBuffer(data);
     });
 
     serverProcess.stderr.on('data', (data) => {
-      buffer += data.toString();
       console.error('[Server Error]', data.toString().trim());
-      
-      // 从累积的缓冲区中查找端口
-      const portMatch = buffer.match(serverConfig.portRegex);
-      if (portMatch) {
-        serverPort = parseInt(portMatch[1], 10);
-        serverStarted = true;
-        resolve(serverPort);
-        buffer = ''; // 找到端口后清除缓冲区
-      }
+      checkPortInBuffer(data);
     });
 
     serverProcess.on('error', (error) => {

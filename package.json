@@ -14,7 +14,7 @@
     "url": "https://github.com/yourusername/electron-config-manager.git"
   },
   "scripts": {
-    "dev": "npm run backend:build && concurrently \"PORT=38178 DEV_MODE=true node backend/run.js\" \"sleep 2 && vite --port 5173\"",
+    "dev": "concurrently \"PORT=38178 DEV_MODE=true node backend/run.js\" \"sleep 2 && vite --port 5173\"",
     "frontend:build": "vite build",
     "backend:build": "node backend/build.js",
     "electron:build": "electron-builder",
@@ -70,23 +70,22 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "!dist/backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/backend",
+        "to": "backend"
+      }
     ],
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "identity": "ArcheMind-Dev"
     },
     "win": {
       "target": ["nsis"]
     },
-    "publish": null,
-    "extraResources": [
-      {
-        "from": "backend",
-        "to": "app/backend",
-        "filter": [
-          "!**/.git/**"
-        ]
-      }
-    ]
+    "publish": null
   }
 }

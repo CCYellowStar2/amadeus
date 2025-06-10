@@ -6,8 +6,9 @@ import { fileURLToPath } from 'url';
 // Get the directory where the script is located, which is /backend
 const __filename = fileURLToPath(import.meta.url);
 const backendDir = path.dirname(__filename);
-const venvPath = path.join(backendDir, '.venv');
+const projectRoot = path.dirname(backendDir); // Assuming backend is a subdir of project root
 const mainPyPath = path.join(backendDir, 'main.py');
+const requirementsPath = path.join(backendDir, 'requirements.txt');
 
 // Function to execute shell commands
 function runCommand(command, cwd) {
@@ -24,31 +25,21 @@ function runCommand(command, cwd) {
 
 console.log('Starting backend run process...');
 
-// 1. Check if the virtual environment exists
-if (!fs.existsSync(venvPath)) {
-  console.error(`Error: Virtual environment not found at ${venvPath}.`);
-  console.error('Please run the build script (build.js) first to create the virtual environment and install dependencies.');
-  process.exit(1);
-}
-
-// 2. Check if main.py exists
+// 1. Check if main.py exists
 if (!fs.existsSync(mainPyPath)) {
   console.error(`Error: ${mainPyPath} not found.`);
   process.exit(1);
 }
 
-// 3. Use the Python from the created venv to run main.py
-const pythonExecutableName = process.platform === 'win32' ? 'python.exe' : 'python';
-const pythonInVenvPath = process.platform === 'win32' ? path.join(venvPath, 'Scripts', pythonExecutableName) : path.join(venvPath, 'bin', pythonExecutableName);
-
-if (!fs.existsSync(pythonInVenvPath)) {
-  console.error(`Error: Python executable not found in virtual environment at ${pythonInVenvPath}.`);
-  console.error('The virtual environment might be corrupted. Try running the build script (build.js) again.');
+// 2. Check if requirements.txt exists
+if (!fs.existsSync(requirementsPath)) {
+  console.error(`Error: ${requirementsPath} not found.`);
   process.exit(1);
 }
 
-const runPythonCommand = `${pythonInVenvPath} ${mainPyPath}`;
-runCommand(runPythonCommand, backendDir);
+// 3. Use uv run to execute main.py directly
+const runPythonCommand = 'uv run -p 3.12 --with-requirements backend/requirements.txt backend/main.py';
+runCommand(runPythonCommand, projectRoot);
 
 console.log('Backend run process completed.');
 

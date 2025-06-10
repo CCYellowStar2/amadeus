@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 
 import asyncio
-import subprocess
+import multiprocessing
 import copy
 import fastapi
 import socket
@@ -14,6 +14,81 @@ from amadeus.config_schema import CONFIG_SCHEMA, EXAMPLE_CONFIG
 from amadeus.config_router import ConfigRouter
 from amadeus.config_persistence import ConfigPersistence
 import yaml
+import threading
+
+
+# 设置multiprocessing使用spawn方法
+multiprocessing.set_start_method('spawn', force=True)
+
+
+def run_app_process(config_yaml: str, app_name: str, log_queue):
+    """
+    在子进程中运行amadeus app的函数
+    """
+    try:
+        # 设置环境变量
+        os.environ["AMADEUS_CONFIG"] = config_yaml
+        os.environ["AMADEUS_APP_NAME"] = app_name
+        
+        # 重定向日志到队列
+        import logging
+        
+        # 设置日志处理器，将日志发送到队列
+        class QueueHandler(logging.Handler):
+            def __init__(self, log_queue):
+                super().__init__()
+                self.log_queue = log_queue
+            
+            def emit(self, record):
+                try:
+                    self.log_queue.put({
+                        'app_name': app_name,
+                        'level': record.levelname,
+                        'message': self.format(record),
+                        'timestamp': record.created
+                    })
+                except Exception:
+                    pass  # 忽略日志发送错误
+        
+        # 配置日志
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        # 清除现有处理器
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        # 添加队列处理器
+        queue_handler = QueueHandler(log_queue)
+        queue_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+        root_logger.addHandler(queue_handler)
+        
+        # 启动amadeus app
+        import amadeus.app
+        import uvicorn
+        from amadeus.config import AMADEUS_CONFIG
+        
+        development = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+        
+        uvicorn.run(
+            "amadeus.app:app",
+            host="0.0.0.0", 
+            port=AMADEUS_CONFIG.receive_port,
+            reload=False,  # 在子进程中禁用reload
+            access_log=False,
+            log_level="debug" if development else "info"
+        )
+                
+    except Exception as e:
+        # 发送错误日志
+        try:
+            log_queue.put({
+                'app_name': app_name,
+                'level': 'ERROR',
+                'message': f"Process failed: {str(e)}",
+                'timestamp': None
+            })
+        except Exception:
+            pass  # 忽略日志发送错误
+        raise
 
 
 @asynccontextmanager
@@ -357,39 +432,54 @@ class ProcessControl:
     def __init__(self, app_name):
         self.app_name = app_name
         self.process = None
-        self.stdout_streamer = None
-        self.stderr_streamer = None
+        self.log_queue = None
+        self.log_streamer = None
+        self.log_stop_event = None
 
-    @classmethod
-    def _stream_std(cls, stream, process, app_name, log_level=logging.INFO):
+    def _stream_logs(self):
         """
-        Stream the standard output or error of a process.
+        从日志队列中读取并打印日志消息
         """
-        # This log message is very verbose, consider removing or reducing frequency if too noisy.
-        # logger.log(log_level, f"Log stream started for service '{app_name}' (PID: {process.pid})")
-        while True:
-            line = stream.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line:
-                logger.log(log_level, f"[{app_name} PID: {process.pid}] {line}")
+        while not self.log_stop_event.is_set():
+            try:
+                # 使用timeout避免无限阻塞
+                log_entry = self.log_queue.get(timeout=1)
+                if log_entry:
+                    app_name = log_entry.get('app_name', 'unknown')
+                    level = log_entry.get('level', 'INFO')
+                    message = log_entry.get('message', '')
+                    
+                    # 映射日志级别
+                    log_level = getattr(logging, level.upper(), logging.INFO)
+                    logger.log(
+                        log_level, 
+                        f"[{app_name} PID: {self.process.pid if self.process else 'unknown'}] {message}"
+                    )
+            except Exception as e:
+                # 处理队列超时和其他异常
+                if "Empty" in str(type(e).__name__) or "timeout" in str(e).lower():
+                    # 超时，继续循环
+                    continue
+                else:
+                    logger.error(f"Error processing log for '{self.app_name}': {e}")
+                    break
 
-    async def start(self, process):
+    async def start(self, process, log_queue):
         self.process = process
+        self.log_queue = log_queue
+        self.log_stop_event = threading.Event()
+        
         logger.info(
-            f"Service '{self.app_name}' (PID: {self.process.pid}) starting log streams."
+            f"Service '{self.app_name}' (PID: {self.process.pid}) starting log streaming."
         )
-        self.stdout_streamer = asyncio.create_task(
-            asyncio.to_thread(
-                self._stream_std, process.stdout, process, self.app_name, logging.INFO
-            )
+        
+        # 启动日志流线程
+        self.log_streamer = threading.Thread(
+            target=self._stream_logs,
+            daemon=True
         )
-        self.stderr_streamer = asyncio.create_task(
-            asyncio.to_thread(
-                self._stream_std, process.stderr, process, self.app_name, logging.ERROR
-            )
-        )
+        self.log_streamer.start()
+        
         return self
 
     async def terminate(self):
@@ -397,18 +487,30 @@ class ProcessControl:
             logger.info(
                 f"Terminating service '{self.app_name}' (PID: {self.process.pid})."
             )
+            
+            # 停止日志流
+            if self.log_stop_event:
+                self.log_stop_event.set()
+            
+            # 终止进程
             self.process.terminate()
+            
             try:
-                self.process.wait(timeout=5)  # Wait for the process to terminate
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    f"Service '{self.app_name}' (PID: {self.process.pid}) did not terminate in time, killing it."
-                )
-                self.process.kill()
-            if self.stdout_streamer:
-                self.stdout_streamer.cancel()
-            if self.stderr_streamer:
-                self.stderr_streamer.cancel()
+                # 等待进程终止，最多5秒
+                self.process.join(timeout=5)
+                if self.process.is_alive():
+                    logger.warning(
+                        f"Service '{self.app_name}' (PID: {self.process.pid}) did not terminate in time, killing it."
+                    )
+                    self.process.kill()
+                    self.process.join(timeout=2)  # 等待kill完成
+            except Exception as e:
+                logger.error(f"Error terminating process '{self.app_name}': {e}")
+            
+            # 等待日志流线程结束
+            if self.log_streamer and self.log_streamer.is_alive():
+                self.log_streamer.join(timeout=2)
+            
             logger.info(
                 f"Service '{self.app_name}' (PID: {self.process.pid}) terminated."
             )
@@ -460,20 +562,20 @@ class ProcessManager:
 
             logger.info(f"Starting service for app '{app_name}'.")
 
-            process = subprocess.Popen(
-                [sys.executable, "-m", "amadeus.app"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env={
-                    "AMADEUS_CONFIG": app_yaml,
-                    # Pass app name to the subprocess environment if needed by amadeus.app
-                    # "AMADEUS_APP_NAME": app_name
-                },
+            # 创建日志队列用于进程间通信
+            log_queue = multiprocessing.Queue()
+            
+            # 创建并启动multiprocessing.Process
+            process = multiprocessing.Process(
+                target=run_app_process,
+                args=(app_yaml, app_name, log_queue),
+                name=f"amadeus-app-{app_name}",
+                daemon=False
             )
-            # Pass app_name to ProcessControl
-            cls.processes[app_hash] = await ProcessControl(app_name).start(process)
+            process.start()
+            
+            # 创建ProcessControl实例并启动日志流
+            cls.processes[app_hash] = await ProcessControl(app_name).start(process, log_queue)
 
         logger.info(f"System status: {len(cls.processes)} service(s) now running.")
 
@@ -499,30 +601,39 @@ class ProcessManager:
                     continue
 
                 # Check if the process has terminated
-                if pc_instance.process.poll() is not None:
+                if not pc_instance.process.is_alive():
                     app_name_to_log = (
                         pc_instance.app_name
                         if hasattr(pc_instance, "app_name")
                         else f"hash: {app_hash}"
                     )
+                    exit_code = pc_instance.process.exitcode
                     logger.warning(
-                        f"Service '{app_name_to_log}' (PID: {pc_instance.process.pid}) terminated unexpectedly. Exit code: {pc_instance.process.returncode}"
+                        f"Service '{app_name_to_log}' (PID: {pc_instance.process.pid}) terminated unexpectedly. Exit code: {exit_code}"
                     )
-                    # Attempt to read any remaining output/error, though it might be empty or already read
+                    
+                    # 尝试清理剩余的日志消息
                     try:
-                        stdout_output = pc_instance.process.stdout.read()
-                        stderr_output = pc_instance.process.stderr.read()
-                        if stdout_output:
-                            logger.info(
-                                f"[{app_name_to_log} PID: {pc_instance.process.pid} STDOUT on exit]: {stdout_output.strip()}"
-                            )
-                        if stderr_output:
-                            logger.error(
-                                f"[{app_name_to_log} PID: {pc_instance.process.pid} STDERR on exit]: {stderr_output.strip()}"
-                            )
+                        # 停止日志流线程
+                        if pc_instance.log_stop_event:
+                            pc_instance.log_stop_event.set()
+                        
+                        # 处理队列中剩余的日志消息
+                        if pc_instance.log_queue:
+                            while True:
+                                try:
+                                    log_entry = pc_instance.log_queue.get_nowait()
+                                    if log_entry:
+                                        message = log_entry.get('message', '')
+                                        level = log_entry.get('level', 'INFO')
+                                        log_level = getattr(logging, level.upper(), logging.INFO)
+                                        logger.log(log_level, f"[{app_name_to_log} FINAL]: {message}")
+                                except Exception as e:
+                                    # 处理队列Empty异常或其他异常
+                                    break
                     except Exception as e:
                         logger.error(
-                            f"Error reading output for terminated service '{app_name_to_log}': {e}"
+                            f"Error processing final logs for terminated service '{app_name_to_log}': {e}"
                         )
 
                     # Clean up old process control instance
@@ -577,6 +688,9 @@ if __name__ == "__main__":
             s.bind(("localhost", 0))
             return s.getsockname()[1]
 
+    # 确保在主进程中运行
+    multiprocessing.freeze_support()  # Windows支持
+    
     port = int(os.environ.get("PORT", get_free_port()))
     setup_loguru()
 
@@ -585,14 +699,14 @@ if __name__ == "__main__":
             "main:app",
             host="localhost",
             port=port,
-            reload=True,
+            reload=False,  # 禁用reload，因为multiprocessing不兼容
             access_log=False,
             log_config=None,
             log_level="debug",
         )
     else:
         uvicorn.run(
-            "main:app",
+            app,
             host="localhost",
             port=port,
             access_log=False,

@@ -25,27 +25,8 @@ function runCommand(command, cwd) {
 
 console.log('Starting backend build process...');
 
-// 1. Create a portable virtual environment in the script's directory
-// Ensure the .venv directory is clean or doesn't exist to avoid issues with --relocatable
-if (fs.existsSync(venvPath)) {
-  console.log(`Removing existing virtual environment at ${venvPath}...`);
-  fs.rmSync(venvPath, { recursive: true, force: true });
-}
-const venvCommand = `uv venv --relocatable ${venvPath}`;
-runCommand(venvCommand, backendDir);
-
-// 2. Use the created virtual environment to install requirements.txt
-let pipInstallCommand;
-const pythonExecutableName = process.platform === 'win32' ? 'python.exe' : 'python';
-const pythonInVenvPath = process.platform === 'win32' ? path.join(venvPath, 'Scripts', pythonExecutableName) : path.join(venvPath, 'bin', pythonExecutableName);
-
-if (!fs.existsSync(requirementsPath)) {
-  console.warn(`Warning: ${requirementsPath} not found. Skipping pip install.`);
-} else {
-  // Using the Python from the created venv to ensure packages are installed in the correct environment
-  // The command becomes `uv pip install -r requirements.txt --python path/to/.venv/bin/python`
-  pipInstallCommand = `uv pip install -r ${requirementsPath} --python ${pythonInVenvPath}`;
-  runCommand(pipInstallCommand, backendDir);
-}
+// Build the backend executable using PyInstaller with uv
+const buildCommand = 'uv run -p 3.12 --with-requirements backend/requirements.txt pyinstaller --name=backend --distpath dist backend/main.py';
+runCommand(buildCommand, projectRoot);
 
 console.log('Backend build process completed.');
