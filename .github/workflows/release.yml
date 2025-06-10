@@ -63,7 +63,7 @@ jobs:
           path: dist_electron
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
           files: |
             dist_electron/*/*.dmg
