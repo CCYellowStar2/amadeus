@@ -3,11 +3,13 @@ const { join, resolve } = require('path');
 const { spawn } = require('child_process');
 const { existsSync } = require('fs');
 const { platform } = require('os');
+const { GracefulKiller } = require('./utils.cjs');
 
 let mainWindow;
 let serverProcess;
 let serverPort;
 let serverStarted = false;
+const killer = new GracefulKiller();
 
 // 默认服务器配置
 const defaultServerConfig = {
@@ -87,6 +89,8 @@ async function startServer(config = defaultServerConfig) {
       },
       cwd: basePath
     });
+    
+    killer.setServerProcess(serverProcess);
 
     let buffer = '';
     let portResolved = false; // 添加标志位防止重复匹配
@@ -124,10 +128,16 @@ async function startServer(config = defaultServerConfig) {
 
     serverProcess.on('close', (code) => {
       console.log('[Server] Process exited with code', code);
-      if (code !== 0 && !app.isQuitting) {
+      if (code !== 0 && !killer.isQuitting) {
         console.log('[Server] Restarting server...');
         serverStarted = false;
+        serverPort = null;
+        killer.setServerProcess(null);
         startServer(serverConfig).then(resolve).catch(reject);
+      } else {
+        serverStarted = false;
+        serverPort = null;
+        killer.setServerProcess(null);
       }
     });
 
@@ -194,16 +204,8 @@ app.on('activate', function () {
   }
 });
 
-app.on('before-quit', () => {
-  app.isQuitting = true;
-  if (serverProcess) {
-    serverProcess.kill();
-  }
-});
-
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') {
-    app.isQuitting = true;
     app.quit();
   }
 });
