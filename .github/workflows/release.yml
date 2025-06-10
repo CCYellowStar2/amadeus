@@ -51,25 +51,17 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
           
-          # Import Apple Worldwide Developer Relations Intermediate Certificate
-          curl -o AppleWWDRCA.cer https://www.apple.com/certificateauthority/AppleWWDRCA.cer
-          security import AppleWWDRCA.cer -k build.keychain -T /usr/bin/codesign
-          
-          # Import user certificate and p12 file
+          # Import certificates
           security import certificate.cer -k build.keychain -T /usr/bin/codesign
+          sudo security add-trusted-cert -d -r trustAsRoot -k build.keychain certificate.cer
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
           
-          # Allow codesign to access the imported key
+          # Set key partition list
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           
-          # Verify identities
-          echo "Available identities in keychain:"
-          security find-identity -v -p codesigning build.keychain
-          
           # Clean up certificate files
-          rm certificate.cer certificate.p12 AppleWWDRCA.cer
+          rm certificate.cer certificate.p12
 
       - name: Install dependencies
         run: npm install
