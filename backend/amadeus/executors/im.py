@@ -1,205 +1,280 @@
+import websockets
+from typing import NoReturn
+import abc
+from loguru import logger
+import uuid
+import asyncio
+import json
+
 import httpx
 from amadeus.common import sys_print, async_lru_cache
 
+class Connector(abc.ABC):
+    @abc.abstractmethod
+    def __init__(self, api_base: str):
+        ...
+
+    @abc.abstractmethod
+    async def call(self, action: str, timeout=10.0, **params):
+        pass
+
+    @abc.abstractmethod
+    async def close(self):
+        pass
+
+
+class WsConnector(Connector):
+    INSTANCES = {}
+    def __new__(cls, api_base: str):
+        if api_base is None:
+            raise ValueError("api_base must be provided for WebSocketHelper instantiation")
+        if api_base not in cls.INSTANCES:
+            instance = super().__new__(cls)
+            cls.INSTANCES[api_base] = instance
+            instance.__init__(api_base)
+        return cls.INSTANCES[api_base]
+
+    def __init__(self, api_base: str):
+        self.api_base = api_base
+        self.event_handlers = []
+        self._call_queue = {}
+        self.started = False
+        self._background = None
+
+    def register_event_handler(self, handler):
+        if not asyncio.iscoroutinefunction(handler):
+            raise ValueError("Handler must be an async function")
+        self.event_handlers.append(handler)
+    
+    async def start(self) -> NoReturn:
+        """
+        connect to the WebSocket server and start the main loop, and wait forever
+        """
+        self.websocket = await websockets.connect(self.api_base)
+        self._timeout_task = asyncio.create_task(self._timeout_loop())
+        await self._main_loop()
+    
+    async def _timeout_loop(self):
+        while True:
+            await asyncio.sleep(10)
+            to_pop = [echo for echo, future in self._call_queue.items() if future.cancelled()]
+            for echo in to_pop:
+                self._call_queue.pop(echo)
+    
+    async def _main_loop(self):
+        self.started = True
+        while True:
+            raw = await self.websocket.recv()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode JSON from WebSocket: {e} - Raw data: {raw}")
+                continue
+            if "echo" in data:
+                echo = data["echo"]
+                if echo in self._call_queue:
+                    future = self._call_queue.pop(echo)
+                    if not future.done():
+                        future.set_result(data)
+                    else:
+                        logger.warning(f"Future for echo {echo} is already done: {future.result()}")
+                    continue
+                else:
+                    logger.warning(f"Unknown echo: {echo} in {data}")
+                    continue
+            else:
+                for handler in self.event_handlers:
+                    if await handler(data):
+                        break
+                continue
+    
+    async def call(self, action: str, timeout: float = 10.0, **params):
+        if not self.started:
+            self.background = asyncio.create_task(self.start())
+        while not self.started:
+            await asyncio.sleep(0.1)
+
+        echo = str(uuid.uuid4())
+        data = {"action": action, "params": params, "echo": echo}
+        await self.websocket.send(json.dumps(data))
+        future = asyncio.get_running_loop().create_future()
+        self._call_queue[echo] = future
+        return await asyncio.wait_for(future, timeout=timeout)
+
+    async def close(self):
+        if (ws := getattr(self, 'websocket')) is not None:
+            await ws.close()
+        if hasattr(self, '_timeout_task'):
+            self._timeout_task.cancel()
+        self._call_queue.clear()
+
+
+
+
+
+class HttpConnector(Connector):
+    def __init__(self, api_base: str):
+        self.api_base = api_base.rstrip('/')
+
+    async def call(self, action: str, **params):  # type: ignore
+        if action in ["send_group_msg", "send_private_msg"]:
+            endpoint = "send_msg"
+        else:
+            endpoint = action
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.api_base}/{endpoint}",
+                    json=params,
+                    timeout=20.0,
+                )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            sys_print(f"HTTP error for action {action}: {e.response.status_code} {e.response.text}")
+            return {"status": "failed", "retcode": e.response.status_code, "data": None, "message": e.response.text}
+        except Exception as e:
+            sys_print(f"Error for action {action}: {e}")
+            return {"status": "failed", "retcode": -1, "data": None, "message": str(e)}
+
+    async def close(self):
+        pass
+
+
 
 class InstantMessagingClient:
-    CLIENTS = {}
+    INSTANCES = {}
+    def __new__(cls, api_base: str):
+        if api_base is None:
+            raise ValueError("api_base must be provided for InstantMessagingClient instantiation")
+        if api_base not in cls.INSTANCES:
+            instance = super().__new__(cls)
+            cls.INSTANCES[api_base] = instance
+            instance.__init__(api_base)
+        return cls.INSTANCES[api_base]
 
-    def __new__(cls, api_base):
-        if api_base not in cls.CLIENTS:
-            cls.CLIENTS[api_base] = super().__new__(cls)
-        return cls.CLIENTS[api_base]
+    def __init__(self, api_base: str):
+        if api_base.startswith("ws://") or api_base.startswith("wss://"):
+            self.connector = WsConnector(api_base)
+        else:
+            self.connector = HttpConnector(api_base)
 
-    def __init__(self, api_base):
-        self.api_base = api_base
+    async def close(self):
+        await self.connector.close()
 
     @async_lru_cache()
     async def get_group_name(self, group_id):
         sys_print(f"获取群信息 {group_id}")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base}/get_group_info",
-                json={"group_id": str(group_id)},
-            )
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status") == "ok":
-                group_name = data["data"]["group_name"]
-                return group_name
-            else:
-                sys_print(f"获取群信息失败: {data}")
-                return str(group_id)
+        response = await self.connector.call(
+            "get_group_info",
+            group_id=str(group_id),
+        )
+        if response and response.get("status") == "ok":
+            group_name = response["data"]["group_name"]
+            return group_name
+        else:
+            sys_print(f"获取群信息失败: {response}")
+            return str(group_id)
 
     async def get_joined_groups(self):
-        """
-        curl --location --request POST '/get_group_list' \
-        --header 'Content-Type: application/json' \
-        --data-raw '{
-            "no_cache": false
-        }'
-
-        {
-            "status": "ok",
-            "retcode": 0,
-            "data": [
-                {
-                    "group_all_shut": 0,
-                    "group_remark": "string",
-                    "group_id": "string",
-                    "group_name": "string",
-                    "member_count": 0,
-                    "max_member_count": 0
-                }
-            ],
-            "message": "string",
-            "wording": "string",
-            "echo": "string"
-        }
-        """
         sys_print("获取已加入的群")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base}/get_group_list",
-                json={"no_cache": False},
-            )
-        assert response.status_code == 200, (
-            f"获取已加入的群失败: {response.status_code} {response.content.decode('utf-8')}"
+        response = await self.connector.call(
+            "get_group_list",
+            no_cache=False,
         )
-        data = response.json()
-        return data["data"]
+        if not (response and response.get("status") == "ok"):
+            sys_print(f"获取已加入的群失败: {response}")
+            return []
+        return response.get("data", [])
 
     @async_lru_cache(maxsize=1)
     async def get_login_info(self):
-        """
-        POST get_login_info
-        {
-          "status": "ok",
-          "retcode": 0,
-          "data": {
-            "user_id": 0,
-            "nickname": "string"
-          },
-          "message": "string",
-          "wording": "string",
-          "echo": "string"
-        }
-        """
         sys_print("获取自己信息")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base}/get_login_info",
-            )
+        response = await self.connector.call("get_login_info")
 
-        assert response.status_code == 200, (
-            f"获取自己信息失败: {response.status_code} {response.content.decode('utf-8')}"
-        )
-        data = response.json()
-        return data["data"]
+        if not (response and response.get("status") == "ok"):
+            sys_print(f"获取自己信息失败: {response}")
+            return None
+        return response.get("data")
 
     @async_lru_cache()
     async def get_user_name(self, user_id):
         sys_print(f"获取用户信息 {user_id}")
-        remark = None
-        nickname = None
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base}/get_stranger_info",
-                json={"user_id": str(user_id)},
-            )
-            if response.status_code == 200:
-                data = response.json()
-                remark = data["data"].get("remark")
-                nickname = data["data"]["nickname"]
-                remark = remark or nickname or str(user_id)
-            else:
-                data = response.content.decode("utf-8")
-                sys_print(f"获取用户信息失败: {data}")
-                return str(user_id)
+        response = await self.connector.call(
+            "get_stranger_info",
+            user_id=str(user_id),
+        )
+        if response and response.get("status") == "ok":
+            remark = response["data"].get("remark")
+            nickname = response["data"].get("nickname")
+            return remark or nickname or str(user_id)
+        else:
+            sys_print(f"获取用户信息失败: {response}")
+            return str(user_id)
 
     @async_lru_cache()
     async def get_group_member_name(self, user_id, group_id):
         sys_print(f"获取群成员信息 {user_id} {group_id}")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.api_base}/get_group_member_info",
-                json={
-                    "group_id": str(group_id),
-                    "user_id": str(user_id),
-                    "no_cache": False,
-                },
-            )
-            if response.status_code == 200:
-                data = response.json()
-                group_card = data["data"].get("card")
-                nickname = data["data"].get("nickname")
-                return group_card or nickname or str(user_id)
-            else:
-                data = response.content.decode("utf-8")
-                sys_print(f"获取群成员信息失败: {data}")
-                return str(user_id)
+        response = await self.connector.call(
+            "get_group_member_info",
+            group_id=str(group_id),
+            user_id=str(user_id),
+            no_cache=False,
+        )
+        if response and response.get("status") == "ok":
+            data = response["data"]
+            group_card = data.get("card")
+            nickname = data.get("nickname")
+            return group_card or nickname or str(user_id)
+        else:
+            sys_print(f"获取群成员信息失败: {response}")
+            return str(user_id)
 
     async def send_message(self, message, target_type: str, target_id: int):
         sys_print(f"发送消息 {target_type} {target_id}")
-        send_msg_url = f"{self.api_base}/send_msg"
+
+        action = None
+        params = {"message": message}
+
         if target_type == "group":
-            data = {
-                "group_id": str(target_id),
-                "message": message,
-            }
+            action = "send_group_msg"
+            params["group_id"] = str(target_id)
         elif target_type == "private":
-            data = {
-                "user_id": str(target_id),
-                "message": message,
-            }
+            action = "send_private_msg"
+            params["user_id"] = str(target_id)
         else:
             sys_print("[未知消息类型]")
             return
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(send_msg_url, json=data)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("status") == "ok":
-                    return data
-                else:
-                    sys_print(f"发送消息失败: {data}")
-                    return False
-            else:
-                sys_print(f"发送消息失败: {resp.status_code}")
-                return False
+
+        response = await self.connector.call(action, **params)
+
+        if response and response.get("status") == "ok":
+            return response
+        else:
+            sys_print(f"发送消息失败: {response}")
+            return False
 
     async def delete_message(self, message_id):
-        delete_msg_url = f"{self.api_base}/delete_msg"
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                delete_msg_url,
-                json={
-                    "message_id": str(message_id),
-                },
-            )
-            if resp.status_code == 200:
-                return True
+        response = await self.connector.call(
+            "delete_msg",
+            message_id=str(message_id),
+        )
+        if response and response.get("status") == "ok":
+            return True
         return False
 
     @async_lru_cache()
     async def get_message(self, message_id):
-        get_msg_url = f"{self.api_base}/get_msg"
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                get_msg_url,
-                json={
-                    "message_id": str(message_id),
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("status") == "ok":
-                    return data["data"]
-                else:
-                    sys_print(f"获取消息失败: {data}")
-                    return None
-            else:
-                sys_print(f"获取消息失败: {resp.status_code}")
-                return None
+        response = await self.connector.call(
+            "get_msg",
+            message_id=str(message_id),
+        )
+        if response and response.get("status") == "ok":
+            return response.get("data")
+        else:
+            sys_print(f"获取消息失败: {response}")
+            return None
 
     async def get_chat_history(
         self,
@@ -208,35 +283,24 @@ class InstantMessagingClient:
         till_message_id: int = 0,
         count: int = 20,
     ):
+        params = {
+            "message_seq": till_message_id,
+            "count": count,
+            "reverseOrder": True,
+        }
+        action = None
         if target_type == "group":
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.api_base}/get_group_msg_history",
-                    json={
-                        "group_id": str(target_id),
-                        "message_seq": till_message_id,
-                        "count": count,
-                        "reverseOrder": True,
-                    },
-                )
-            if not response.status_code == 200:
-                sys_print(f"获取群消息失败: {response.status_code}")
-                return []
-            data = response.json()
-            return data.get("data", {}).get("messages", [])
+            action = "get_group_msg_history"
+            params["group_id"] = str(target_id)
+        elif target_type == "private":
+            action = "get_friend_msg_history"
+            params["user_id"] = str(target_id)
         else:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.api_base}/get_friend_msg_history",
-                    json={
-                        "user_id": str(target_id),
-                        "message_seq": till_message_id,
-                        "count": count,
-                        "reverseOrder": True,
-                    },
-                )
-            if not response.status_code == 200:
-                sys_print(f"获取好友消息失败: {response.status_code}")
-                return []
-            data = response.json()
-            return data.get("data", {}).get("messages", [])
+            return []
+
+        response = await self.connector.call(action, **params)
+        if response and response.get("status") == "ok":
+            return response.get("data", {}).get("messages", [])
+
+        sys_print(f"获取{target_type}消息失败: {response}")
+        return []

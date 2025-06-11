@@ -14,11 +14,15 @@ async def iter_csv(line_generator):
 
 
 def self_print(text, **kwargs):
-    print(f"\033[92m{text}\033[0m", **kwargs)
+    from loguru import logger
+
+    logger.info(f"\033[92m{text}\033[0m", **kwargs)
 
 
 def sys_print(text, **kwargs):
-    print(f"\033[90m{text}\033[0m", **kwargs)
+    from loguru import logger
+
+    logger.info(f"\033[94m{text}\033[0m", **kwargs)
 
 
 def format_timestamp(timestamp, timezone=None):

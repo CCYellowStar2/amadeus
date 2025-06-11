@@ -62,20 +62,22 @@ def run_app_process(config_yaml: str, app_name: str, log_queue):
         root_logger.addHandler(queue_handler)
         
         # 启动amadeus app
-        import amadeus.app
-        import uvicorn
-        from amadeus.config import AMADEUS_CONFIG
-        
-        development = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
-        
-        uvicorn.run(
-            "amadeus.app:app",
-            host="0.0.0.0", 
-            port=AMADEUS_CONFIG.receive_port,
-            reload=False,  # 在子进程中禁用reload
-            access_log=False,
-            log_level="debug" if development else "info"
-        )
+        from amadeus.app import main
+
+        main()
+        # import uvicorn
+        # from amadeus.config import AMADEUS_CONFIG
+        # 
+        # development = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+        # 
+        # uvicorn.run(
+        #     "amadeus.app:app",
+        #     host="0.0.0.0", 
+        #     port=AMADEUS_CONFIG.receive_port,
+        #     reload=False,  # 在子进程中禁用reload
+        #     access_log=False,
+        #     log_level="info" if development else "info"
+        # )
                 
     except Exception as e:
         # 发送错误日志
@@ -195,7 +197,7 @@ async def joined_group_enhancer(
 
     from amadeus.executors.im import InstantMessagingClient
 
-    im = InstantMessagingClient(api_base=f"http://localhost:{send_port}")
+    im = InstantMessagingClient(api_base=f"ws://localhost:{send_port}")
 
     try:
         groups = await im.get_joined_groups()
@@ -218,7 +220,7 @@ async def model_list_enhancer(
     config_data: Dict[str, Any],
     class_name: str,
     instance_name: Optional[str] = None,
-) -> Dict[str, Any]:
+):
     """
     Enhance schema by resolving model lists.
     This is a placeholder for future implementation.

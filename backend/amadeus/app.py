@@ -6,14 +6,10 @@ from amadeus.llm import llm
 from amadeus.tools.im import QQChat
 from amadeus.config import AMADEUS_CONFIG
 from loguru import logger
-import os
 
-import fastapi
 
 
 TARGETS = set()
-
-app = fastapi.FastAPI()
 
 
 DEBOUNCE_TIME = 1.5
@@ -29,7 +25,7 @@ TARGET_STATE = collections.defaultdict(lambda: State())
 
 
 async def user_loop():
-    print("用户消息监听器启动")
+    sys_print("用户消息监听器启动")
     while True:
         await asyncio.sleep(1)
         for (chat_type, target_id), state in TARGET_STATE.items():
@@ -38,7 +34,7 @@ async def user_loop():
             if state.next_view >= time.time():
                 continue
             qq_chat = QQChat(
-                api_base=f"http://localhost:{AMADEUS_CONFIG.send_port}",
+                api_base=f"ws://localhost:{AMADEUS_CONFIG.send_port}",
                 chat_type=chat_type,
                 target_id=target_id,
             )
@@ -65,7 +61,6 @@ async def user_loop():
                 self_print(m)
 
 
-_TASKS = {}
 
 
 USER_BLACKLIST = set(
@@ -114,54 +109,57 @@ MIDDLEWARES = [
 ]
 
 
+_TASKS = {}
+
 DAEMONS = [
     user_loop,
 ]
 
 
-@app.post("/")
-async def handle_onebot(request: fastapi.Request):
-    for task in DAEMONS:
-        if id(task) not in _TASKS or _TASKS[id(task)].done():
-            _TASKS[id(task)] = asyncio.create_task(task())
-            sys_print(f"启动后台任务: {task.__name__}")
 
-    try:
-        json_body = await request.json()
-
-        for middleware in MIDDLEWARES:
-            if await middleware(json_body):
-                return {"status": "success", "message": "ok"}
-
-        if json_body.get("group_id"):
-            target_type = "group"
-        else:
-            target_type = "private"
-        target_id = json_body.get("group_id", 0) or json_body.get("user_id", 0)
-        msg_time = json_body.get("time", 0)
-        if msg_time:
-            TARGET_STATE[(target_type, target_id)].next_view = msg_time + DEBOUNCE_TIME
-
-        return {"status": "success", "message": "ok"}
-
-    except Exception as e:
-        import traceback
-
-        sys_print(traceback.format_exc())
-        return {"status": "error", "message": str(e)}
+from amadeus.executors.im import WsConnector
 
 
-if __name__ == "__main__":
-    import uvicorn
-    import os
+async def message_handler(data):
+    '''
+    返回 True 表示消息被处理，False 表示消息被忽略
+    '''
+    if data.get("post_type") != "message":
+        return False
+    
+    # 检查中间件
+    json_body = data
+    middleware_blocked = False
+    for middleware in MIDDLEWARES:
+        if await middleware(json_body):
+            middleware_blocked = True
+            break
+    
+    if middleware_blocked:
+        return True
 
-    development = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+    if json_body.get("group_id"):
+        target_type = "group"
+    else:
+        target_type = "private"
+    target_id = json_body.get("group_id", 0) or json_body.get("user_id", 0)
+    msg_time = json_body.get("time", 0)
+    if msg_time:
+        TARGET_STATE[(target_type, target_id)].next_view = msg_time + DEBOUNCE_TIME
+    return True
 
-    uvicorn.run(
-        "amadeus.app:app",
-        host="0.0.0.0",
-        port=AMADEUS_CONFIG.receive_port,
-        reload=development,
-        access_log=False,
-        log_level="debug" if development else "info",
-    )
+
+async def _main():
+    for daemon in DAEMONS:
+        if daemon not in _TASKS:
+            _TASKS[daemon] = asyncio.create_task(daemon())
+    port = AMADEUS_CONFIG.send_port
+    uri = f"ws://localhost:{port}/"
+    helper = WsConnector(uri)
+    helper.register_event_handler(message_handler)
+    await helper.start()
+    
+
+def main():
+    asyncio.run(_main())
+
