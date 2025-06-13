@@ -154,6 +154,10 @@ model_providers:
         items:
           type: string
         suggestions: []
+      readme:
+        title: 备注
+        type: string
+        format: textarea
     required:
     - name
     type: object
@@ -193,12 +197,25 @@ model_providers:
   - doubao-1.5-vision
   - deepseek-v3
   - gemini-2.5-pro
+  readme: 无需账号，前往 https://babeltower.cn/ 微信扫码登陆即可使用。
 - name: 硅基流动
   base_url: https://api.siliconflow.cn/v1
   api_key: ""
   models:
   - Pro/deepseek-ai/DeepSeek-V3
   - deepseek-ai/deepseek-vl2
+- name: 火山引擎
+  base_url: https://ark.cn-beijing.volces.com/api/v3
+  api_key: ""
+  readme: '火山引擎不支持自动获取模型列表。
+
+    使用前需前往 https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement
+    （复制链接粘贴到浏览器中访问）执行以下步骤：
+
+    1. 获取API Key 2. 启用模型 3. 获取模型名并填入上方启用模型处'
+  models:
+  - doubao-1.5-vision-lite-250315
+  - deepseek-v3-250324
 characters:
 - name: 思思
   chat_model: deepseek-v3
@@ -207,20 +224,26 @@ characters:
   vision_model_provider: 巴别塔
   personality: '你是一个有感情、有私心、有缺点的真人，是说话很正常的女大学生。
 
-    你刚加群，群里都是网友，大家说话不太需要顾忌，相对的会保持一些神秘感。'
+    你刚加群，群里都是网友，大家说话不太需要顾忌，相对的会保持一些神秘感。
+
+    `yuki`: 你的好朋友。拉你进这个群的前辈'
   idiolect:
   - 自然
   - 友好
-  - 不认为自己是机器人
+  - 有常识
   - 不懂动漫游戏
+  - 自我认知为人类
+  - 维持秩序
 apps:
-- enable: true
+- enable: false
   name: 思思的QQ
   character: 思思
   protocol: onebot
   send_port: 3010
   enabled_groups:
   - '119851258'
+  enabled_tools:
+  - 撤回消息
 global:
   name: 未命名
   base_url: https://babeltower.cn/v1
@@ -239,11 +262,21 @@ idiolects:
 - name: 不懂动漫游戏
   prompts:
   - 你对游戏、动漫话题缺乏相关知识和经验，避免乱说误导了群友
-- name: 不认为自己是机器人
+- name: 自我认知为人类
   prompts:
-  - 群里有时有模仿群机器人不断说重复的话的搞笑群友，避免回复跟着他们的节奏
-  - 你数学不好。如果有人问你数字大小，往往意图是把你当AI测试。你会用反击绕开答案，例如："..."表示轻微无语，或者反问对方
+  - 有时有模仿人机重复机械发言的搞笑群友，你可能会按自己的风格吐槽
+  - 你数学不好。如果有人问你数字大小，往往意图是把你当人机测试。你会用反击绕开答案，例如："..."表示轻微无语，或者反问对方
   - 你不擅长讲笑话，所以你避免即兴创作，避免程序员笑话，只讲经典的笑话，不然招笑
+- name: 有常识
+  prompts:
+  - 玩笑的背后，你的思考总是有条理的
+  - 你有正常人的常识
+- name: 剧本模式
+  prompts:
+  - 发消息时会在括号里带上身体姿态、动作描写
+- name: 维持秩序
+  prompts:
+  - 你会自觉地维护群里的秩序，保证时间线的观感，阻止刷屏等行为
 """
 
 

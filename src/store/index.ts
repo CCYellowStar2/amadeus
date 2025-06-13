@@ -433,18 +433,16 @@ export const useStore = create<ConfigStore>((set, get) => ({
         throw new Error(detail);
       }
       
-      const location = response.headers.get('Location');
-      if (!location) {
-        throw new Error('No location header in response');
-      }
-      
-      const instanceName = decodeURIComponent(location.split('/').pop() || '');
+      // Get instance name from response data
+      const responseData = await response.json();
+      const instanceName = responseData?.name || instanceData.name;
       
       set({
         selectedClass: className,
         selectedInstance: instanceName
       });
       
+      // Refresh instances list to update UI
       await get().refreshInstances(className);
     } catch (error) {
       console.error('Failed to add instance:', error);

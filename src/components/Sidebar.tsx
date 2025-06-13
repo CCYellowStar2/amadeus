@@ -48,6 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
     try {
       setAddItemState('VALIDATING');
       await addInstance(className, { name: newItemName });
+      await new Promise(resolve => setTimeout(resolve, 100));
       if (!expandedItems.includes(className)) {
         await toggleExpanded(className);
       }
@@ -65,14 +66,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
       e.preventDefault();
       const configClass = configClasses?.[className];
       if (!configClass) return;
-
-      const instances = configClass.instances || [];
-      const isDuplicate = instances.some((instance: any) => instance.name === newItemName);
-      
-      if (isDuplicate) {
-        setAddItemState('ERROR');
-        return;
-      }
       
       await handleAddInstance(className);
     } else if (e.key === 'Escape') {

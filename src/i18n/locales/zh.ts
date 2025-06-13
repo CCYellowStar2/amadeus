@@ -71,7 +71,7 @@ export default {
     uniqueItems: '项目必须唯一'
   },
   array: {
-    add: '添加',
+    add: '回车添加',
     empty: '暂无 {{name}} 项目',
     itemCount: '项',
     itemCount_plural: '项',
