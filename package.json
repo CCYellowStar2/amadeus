@@ -24,6 +24,7 @@
   "dependencies": {
     "@headlessui/react": "^1.7.18",
     "@heroicons/react": "^2.1.1",
+    "ansi-to-html": "^0.7.2",
     "clsx": "^2.1.0",
     "cors": "^2.8.5",
     "electron-store": "^8.1.0",
@@ -88,7 +89,9 @@
       "gatekeeperAssess": false
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "publish": null
   }

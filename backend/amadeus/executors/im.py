@@ -7,7 +7,7 @@ import asyncio
 import json
 
 import httpx
-from amadeus.common import sys_print, async_lru_cache
+from amadeus.common import sys_print, async_lru_cache, green
 
 class Connector(abc.ABC):
     @abc.abstractmethod
@@ -28,41 +28,49 @@ class WsConnector(Connector):
     def __new__(cls, api_base: str):
         if api_base is None:
             raise ValueError("api_base must be provided for WebSocketHelper instantiation")
+        api_base = api_base.rstrip('/')
         if api_base not in cls.INSTANCES:
+            logger.debug(green(f"Creating new WebSocketHelper instance for {api_base}, existing instances: {list(cls.INSTANCES.keys())}"))
             instance = super().__new__(cls)
             cls.INSTANCES[api_base] = instance
-            instance.__init__(api_base)
-        return cls.INSTANCES[api_base]
+            return cls.INSTANCES[api_base]
+        else:
+            logger.debug(green(f"Reusing existing WebSocketHelper instance for {api_base}"))
+            return cls.INSTANCES[api_base]
 
     def __init__(self, api_base: str):
-        self.api_base = api_base
+        if getattr(self, '_initialized', False):
+            return
+
+        self.api_base = api_base.rstrip('/')
         self.event_handlers = []
         self._call_queue = {}
-        self.started = False
+        self.ready = False
         self._background = None
+        self._start_lock = asyncio.Lock()
+        self._initialized = True
 
     def register_event_handler(self, handler):
         if not asyncio.iscoroutinefunction(handler):
             raise ValueError("Handler must be an async function")
         self.event_handlers.append(handler)
     
-    async def start(self) -> NoReturn:
+    async def start(self, wait_forever=True) -> NoReturn:
         """
         connect to the WebSocket server and start the main loop, and wait forever
         """
-        self.websocket = await websockets.connect(self.api_base)
-        self._timeout_task = asyncio.create_task(self._timeout_loop())
-        await self._main_loop()
-    
-    async def _timeout_loop(self):
-        while True:
-            await asyncio.sleep(10)
-            to_pop = [echo for echo, future in self._call_queue.items() if future.cancelled()]
-            for echo in to_pop:
-                self._call_queue.pop(echo)
+        if self._background is None:
+            async with self._start_lock:
+                if self._background is None:
+                    self.websocket = await websockets.connect(self.api_base)
+                    self._timeout_task = asyncio.create_task(self._timeout_loop())
+                    self._background = asyncio.create_task(self._main_loop())
+        if wait_forever:
+            await self._background  # Wait for the main loop to start
     
     async def _main_loop(self):
-        self.started = True
+        self.ready = True
+        logger.info(f"Connected to WebSocket at {self.api_base}")
         while True:
             raw = await self.websocket.recv()
             try:
@@ -88,10 +96,17 @@ class WsConnector(Connector):
                         break
                 continue
     
+    async def _timeout_loop(self):
+        while True:
+            await asyncio.sleep(10)
+            to_pop = [echo for echo, future in self._call_queue.items() if future.cancelled()]
+            for echo in to_pop:
+                self._call_queue.pop(echo)
+    
     async def call(self, action: str, timeout: float = 10.0, **params):
-        if not self.started:
-            self.background = asyncio.create_task(self.start())
-        while not self.started:
+        if self._background is None:
+            await self.start(wait_forever=False)
+        while not self.ready:
             await asyncio.sleep(0.1)
 
         echo = str(uuid.uuid4())
@@ -155,10 +170,13 @@ class InstantMessagingClient:
         return cls.INSTANCES[api_base]
 
     def __init__(self, api_base: str):
+        if getattr(self, '_initialized', False):
+            return
         if api_base.startswith("ws://") or api_base.startswith("wss://"):
             self.connector = WsConnector(api_base)
         else:
             self.connector = HttpConnector(api_base)
+        self._initialized = True
 
     async def close(self):
         await self.connector.close()

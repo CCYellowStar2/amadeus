@@ -1,7 +1,7 @@
 import time
 import collections
 import asyncio
-from amadeus.common import sys_print, self_print
+from amadeus.common import sys_print
 from amadeus.llm import llm
 from amadeus.tools.im import QQChat
 from amadeus.config import AMADEUS_CONFIG
@@ -10,8 +10,6 @@ from loguru import logger
 
 
 TARGETS = set()
-
-
 DEBOUNCE_TIME = 1.5
 
 
@@ -58,8 +56,7 @@ async def user_loop():
                 continue_on_tool_call=False,
                 temperature=1,
             ):
-                self_print(m)
-
+                logger.info(m)
 
 
 
@@ -98,9 +95,7 @@ TARGET_WHITELIST = set(
 async def group_whitelist(json_body):
     if str(json_body.get("group_id")) not in AMADEUS_CONFIG.enabled_groups:
         return True
-    logger.info(
-        f"收到来自群组的消息: {json_body.get('group_id')}, 群组名称: {json_body.get('group_name')}"
-    )
+
 
 
 MIDDLEWARES = [
@@ -112,7 +107,7 @@ MIDDLEWARES = [
 _TASKS = {}
 
 DAEMONS = [
-    user_loop,
+    user_loop
 ]
 
 
@@ -145,6 +140,7 @@ async def message_handler(data):
     target_id = json_body.get("group_id", 0) or json_body.get("user_id", 0)
     msg_time = json_body.get("time", 0)
     if msg_time:
+        logger.info(f"收到消息: {target_type} {target_id} {msg_time} {json_body.get('message', '')}")
         TARGET_STATE[(target_type, target_id)].next_view = msg_time + DEBOUNCE_TIME
     return True
 

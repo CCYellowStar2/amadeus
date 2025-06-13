@@ -1,0 +1,35 @@
+.terminal-modal {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background-color: #1e1e1e;
+  transform: translateY(100%);
+  transition: transform 0.3s ease-in-out;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+}
+
+.terminal-modal.visible {
+  transform: translateY(0);
+}
+
+.terminal-container {
+  color: #d4d4d4;
+  flex-grow: 1;
+  padding: 10px;
+  overflow-y: auto;
+  font-family: 'Courier New', Courier, monospace;
+  box-sizing: border-box;
+  height: 100%;
+}
+
+.logs {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  height: 100%;
+} 

@@ -33,16 +33,10 @@ apps:
         uniqueItems: true
         description: 可以从已加的群中选择或手动输入群号
         suggestions: []
-      receive_port:
-        title: 接收端口
-        default: 4000
-        maximum: 65535
-        minimum: 1
-        type: integer
       send_port:
-        title: 发送端口
+        title: 通信端口
         default: 3000
-        description: 填入onebot协议的服务器端口。正确配置后，Amadeus可以自动获取到已加的群号。
+        description: 填入onebot协议的ws服务器端口。正确配置后，Amadeus可以自动获取到已加的群号。
         maximum: 65535
         minimum: 1
         type: integer
@@ -215,7 +209,6 @@ apps:
   name: 思思的QQ
   character: 思思
   protocol: onebot
-  receive_port: 4010
   send_port: 3010
   enabled_groups:
   - '119851258'

@@ -31,7 +31,6 @@ class Config(pydantic.BaseModel):
     name: str
     protocol: str
     send_port: int
-    receive_port: int
     character: Character
     enable: bool
     enabled_groups: list[str]

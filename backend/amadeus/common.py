@@ -25,6 +25,12 @@ def sys_print(text, **kwargs):
     logger.info(f"\033[94m{text}\033[0m", **kwargs)
 
 
+def green(text):
+    return f"\033[92m{text}\033[0m"
+
+def gray(text):
+    return f"\033[90m{text}\033[0m"
+
 def format_timestamp(timestamp, timezone=None):
     """
     Format a timestamp into a human-readable string.

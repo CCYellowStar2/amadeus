@@ -15,6 +15,7 @@ from amadeus.config_router import ConfigRouter
 from amadeus.config_persistence import ConfigPersistence
 import yaml
 import threading
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # 设置multiprocessing使用spawn方法
@@ -65,19 +66,6 @@ def run_app_process(config_yaml: str, app_name: str, log_queue):
         from amadeus.app import main
 
         main()
-        # import uvicorn
-        # from amadeus.config import AMADEUS_CONFIG
-        # 
-        # development = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
-        # 
-        # uvicorn.run(
-        #     "amadeus.app:app",
-        #     host="0.0.0.0", 
-        #     port=AMADEUS_CONFIG.receive_port,
-        #     reload=False,  # 在子进程中禁用reload
-        #     access_log=False,
-        #     log_level="info" if development else "info"
-        # )
                 
     except Exception as e:
         # 发送错误日志
@@ -149,6 +137,23 @@ app = fastapi.FastAPI(
     description="API for managing Amadeus configuration.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# Set up CORS middleware
+origins = [
+    "http://localhost:5173",  # Frontend dev server
+    "http://127.0.0.1:5173",
+    "file://",  # Allow file:// protocol for production
+    "http://localhost:*",  # Allow any localhost port
+    "http://127.0.0.1:*",  # Allow any localhost port
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Initialize the config persistence

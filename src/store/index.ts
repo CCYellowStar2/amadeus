@@ -44,24 +44,6 @@ interface ConfigClass {
   data?: any; // For singleton data
 }
 
-// Add type declaration for window.electronAPI
-declare global {
-  interface Window {
-    electronAPI?: {
-      getApiPort: () => Promise<number>;
-    };
-  }
-}
-
-// Helper function to get API base URL
-async function getApiBaseUrl() {
-  if (window.electronAPI) {
-    const port = await window.electronAPI.getApiPort();
-    return `http://localhost:${port}`;
-  }
-  return '';
-}
-
 // Add error types
 export class ValidationError extends Error {
   constructor(message: string, public field?: string) {
@@ -377,17 +359,14 @@ export const useStore = create<ConfigStore>((set, get) => ({
       loading: { ...state.loading, update: true } 
     }));
 
-    try {
-      const { configClasses } = get();
-      if (!configClasses) throw createConfigError(ErrorCodes.CONFIG.NOT_FOUND);
-      
-      const configClass = configClasses[className];
-      if (!configClass) throw createConfigError(ErrorCodes.CONFIG.NOT_FOUND);
+    const { configClasses } = get();
+    const configClass = configClasses?.[className];
 
+    try {
       const baseUrl = await getApiBaseUrl();
-      const url = configClass.isSingleton
-        ? `${baseUrl}/config/class/${className}/singleton`
-        : `${baseUrl}/config/class/${className}/instances/${instanceName}`;
+      const url = instanceName
+        ? `${baseUrl}/config/class/${className}/instances/${instanceName}`
+        : `${baseUrl}/config/class/${className}`;
 
       const response = await fetch(url, {
         method: 'PUT',
@@ -406,7 +385,7 @@ export const useStore = create<ConfigStore>((set, get) => ({
       await get().fetchSchema(className, instanceName);
 
       // 2. Refetch instance data (or list)
-      if (configClass.isSingleton) {
+      if (configClass?.isSingleton) {
         const dataResponse = await fetch(`${baseUrl}/config/class/${className}/singleton`);
         if (!dataResponse.ok) throw new Error('Failed to refetch singleton data');
         const data = await dataResponse.json();
@@ -439,16 +418,6 @@ export const useStore = create<ConfigStore>((set, get) => ({
   
   addInstance: async (className, instanceData) => {
     try {
-      const { configClasses } = get();
-      if (!configClasses) throw new Error('No config classes available');
-      
-      set(state => ({ 
-        loading: { ...state.loading, update: true } 
-      }));
-      
-      const configClass = configClasses[className];
-      if (!configClass) throw new Error('Config class not found');
-      
       const baseUrl = await getApiBaseUrl();
       const response = await fetch(`${baseUrl}/config/class/${className}/instances`, {
         method: 'POST',
@@ -460,7 +429,7 @@ export const useStore = create<ConfigStore>((set, get) => ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        const detail = errorData?.detail || 'Failed to add instance';
+        const detail = errorData?.detail || 'Failed to add instances';
         throw new Error(detail);
       }
       
@@ -488,16 +457,6 @@ export const useStore = create<ConfigStore>((set, get) => ({
   
   deleteInstance: async (className, instanceName) => {
     try {
-      const { configClasses } = get();
-      if (!configClasses) throw new Error('No config classes available');
-      
-      set(state => ({ 
-        loading: { ...state.loading, update: true } 
-      }));
-      
-      const configClass = configClasses[className];
-      if (!configClass) throw new Error('Config class not found');
-      
       const baseUrl = await getApiBaseUrl();
       const response = await fetch(`${baseUrl}/config/class/${className}/instances/${instanceName}`, {
         method: 'DELETE',
@@ -527,18 +486,8 @@ export const useStore = create<ConfigStore>((set, get) => ({
 
   cloneInstance: async (className, instanceName) => {
     try {
-      const { configClasses } = get();
-      if (!configClasses) throw new Error('No config classes available');
-      
-      set(state => ({ 
-        loading: { ...state.loading, update: true } 
-      }));
-      
-      const configClass = configClasses[className];
-      if (!configClass) throw new Error('Config class not found');
-      
       const baseUrl = await getApiBaseUrl();
-      const response = await fetch(`${baseUrl}/config/class/${className}/instances/${instanceName}`, {
+      const response = await fetch(`${baseUrl}/config/class/${className}/instances/${instanceName}/clone`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -586,3 +535,19 @@ export const useStore = create<ConfigStore>((set, get) => ({
     }
   }
 }));
+
+// Helper function to get API base URL, aware of Electron/browser environments
+async function getApiBaseUrl() {
+  // @ts-ignore
+  if (window.api) {
+    try {
+      // @ts-ignore
+      const port = await window.api.invoke('get-api-port');
+      if (port) return `http://localhost:${port}`;
+    } catch (error) {
+      console.error('Failed to get API port from Electron, falling back to dev port.', error);
+    }
+  }
+  // Fallback for browser development or if Electron IPC fails
+  return `http://localhost:38178`;
+}

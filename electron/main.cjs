@@ -44,6 +44,7 @@ const defaultServerConfig = {
 async function startServer(config = defaultServerConfig) {
   // 如果服务器已经启动，直接返回端口
   if (serverStarted && serverPort) {
+    console.log('[Server] Server already running on port:', serverPort);
     return serverPort;
   }
 
@@ -61,6 +62,10 @@ async function startServer(config = defaultServerConfig) {
     ? join(process.resourcesPath, serverConfig.execPath)
     : join(__dirname, '..', 'dist', serverConfig.execPath);
   
+  console.log('[Server] App is packaged:', app.isPackaged);
+  console.log('[Server] Resources path:', process.resourcesPath);
+  console.log('[Server] Base path:', basePath);
+  
   // 解析完整的参数路径
   const fullArgs = serverConfig.args.map(arg => {
     // 如果参数是一个文件路径（不包含空格和特殊字符），则解析为完整路径
@@ -72,14 +77,18 @@ async function startServer(config = defaultServerConfig) {
   
   // 检查主要脚本文件是否存在
   const mainScript = fullArgs.find(arg => /\.(js|ts|py|rb|php|exe)$/i.test(arg));
-  if (mainScript && !existsSync(mainScript)) {
-    console.error('Server script not found:', mainScript);
-    throw new Error(`Server script not found: ${mainScript}`);
+  if (mainScript) {
+    console.log('[Server] Checking main script:', mainScript);
+    if (!existsSync(mainScript)) {
+      console.error('[Server] Main script not found:', mainScript);
+      throw new Error(`Server script not found: ${mainScript}`);
+    }
   }
 
   return new Promise((resolve, reject) => {
     console.log(`[Server] Starting with command: ${command} ${fullArgs.join(' ')}`);
     console.log(`[Server] Working directory: ${basePath}`);
+    console.log('[Server] Environment:', serverConfig.env);
     
     serverProcess = spawn(command, fullArgs, {
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -93,31 +102,40 @@ async function startServer(config = defaultServerConfig) {
     killer.setServerProcess(serverProcess);
 
     let buffer = '';
-    let portResolved = false; // 添加标志位防止重复匹配
+    let portResolved = false;
     
     const checkPortInBuffer = (data) => {
-      if (portResolved) return; // 如果已经匹配成功，直接返回
+      if (portResolved) return;
       
       buffer += data.toString();
+      console.log('[Server] Current buffer:', buffer);
       
-      // 从累积的缓冲区中查找端口
       const portMatch = buffer.match(serverConfig.portRegex);
       if (portMatch && !portResolved) {
-        portResolved = true; // 设置标志位，防止重复匹配
+        portResolved = true;
         serverPort = parseInt(portMatch[1], 10);
         serverStarted = true;
+        console.log('[Server] Port resolved:', serverPort);
         resolve(serverPort);
-        buffer = ''; // 找到端口后清除缓冲区
+        buffer = '';
       }
     };
 
     serverProcess.stdout.on('data', (data) => {
-      console.log('[Server]', data.toString().trim());
+      const output = data.toString().trim();
+      console.log('[Server]', output);
+      if (mainWindow) {
+        mainWindow.webContents.send('backend-log', data.toString());
+      }
       checkPortInBuffer(data);
     });
 
     serverProcess.stderr.on('data', (data) => {
-      console.error('[Server Error]', data.toString().trim());
+      const error = data.toString().trim();
+      console.error('[Server Error]', error);
+      if (mainWindow) {
+        mainWindow.webContents.send('backend-log', data.toString());
+      }
       checkPortInBuffer(data);
     });
 
@@ -144,6 +162,7 @@ async function startServer(config = defaultServerConfig) {
     // 超时
     setTimeout(() => {
       if (!serverStarted) {
+        console.error('[Server] Startup timeout');
         reject(new Error(`Server startup timeout after ${serverConfig.timeout}ms`));
       }
     }, serverConfig.timeout);
@@ -153,17 +172,22 @@ async function startServer(config = defaultServerConfig) {
 // 注册IPC处理程序，只需注册一次
 function registerIPCHandlers() {
   if (!ipcMain.listenerCount('get-api-port')) {
-    ipcMain.handle('get-api-port', () => serverPort);
+    ipcMain.handle('get-api-port', () => {
+      console.log('[IPC] get-api-port called, returning port:', serverPort);
+      return serverPort;
+    });
   }
 }
 
 async function createWindow() {
   // 启动服务器（如果尚未启动）并获取端口
   try {
+    console.log('[App] Starting server...');
     serverPort = await startServer();
     serverStarted = true;
+    console.log('[App] Server started successfully on port:', serverPort);
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('[App] Failed to start server:', error);
     app.quit();
     return;
   }
@@ -178,10 +202,18 @@ async function createWindow() {
     },
   });
 
+  // 在加载页面之前，先发送端口信息
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[App] Window loaded, sending port:', serverPort);
+    mainWindow.webContents.send('backend-port', serverPort);
+  });
+
   if (process.env.NODE_ENV === 'development') {
+    console.log('[App] Loading development URL');
     mainWindow.loadURL('http://localhost:5173/');
     mainWindow.webContents.openDevTools();
   } else {
+    console.log('[App] Loading production file');
     mainWindow.loadFile(join(__dirname, '../dist/index.html'));
   }
 
