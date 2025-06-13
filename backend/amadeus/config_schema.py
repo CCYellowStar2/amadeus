@@ -40,6 +40,15 @@ apps:
         maximum: 65535
         minimum: 1
         type: integer
+      enabled_tools:
+        items:
+          type: string
+        title: 启用功能
+        type: array
+        uniqueItems: true
+        suggestions:
+          - 撤回消息
+          - 群管理-禁言
     required:
     - name
     type: object

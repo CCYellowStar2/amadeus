@@ -249,6 +249,20 @@ class InstantMessagingClient:
             logger.error(f"获取群成员信息失败: {response}")
             return str(user_id)
 
+    async def set_group_ban(self, group_id: int, user_id: int, duration: int = 0):
+        logger.info(f"设置群禁言 {group_id} {user_id} {duration}")
+        response = await self.connector.call(
+            "set_group_ban",
+            group_id=str(group_id),
+            user_id=str(user_id),
+            duration=duration,
+        )
+        if response and response.get("status") == "ok":
+            return True
+        else:
+            logger.error(f"设置群禁言失败: {response}")
+            return False
+
     async def send_message(self, message, target_type: str, target_id: int):
         logger.info(f"发送消息 {target_type} {target_id}")
 

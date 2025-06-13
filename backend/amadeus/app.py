@@ -22,6 +22,7 @@ class State:
 TARGET_STATE = collections.defaultdict(lambda: State())
 
 
+
 async def user_loop():
     logger.info("主机器人循环启动")
     while True:
@@ -39,6 +40,17 @@ async def user_loop():
                 )
                 content = await qq_chat.view_chat_context()
                 state.last_view = state.next_view
+
+                TOOL_MAP = {
+                    "撤回消息": qq_chat.delete_message,
+                    "群管理-禁言": qq_chat.set_group_ban,
+                }
+
+                tools = [
+                    TOOL_MAP[t]
+                    for t in AMADEUS_CONFIG.enabled_tools
+                    if t in TOOL_MAP
+                ]
                 
                 async for m in llm(
                     [
@@ -50,9 +62,7 @@ async def user_loop():
                     tools=[
                         qq_chat.send_message,
                         qq_chat.ignore,
-                        qq_chat.delete_message,
-                        # greater_than,
-                    ],
+                    ] + tools,
                     continue_on_tool_call=False,
                     temperature=1,
                 ):

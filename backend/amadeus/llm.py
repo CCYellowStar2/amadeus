@@ -122,7 +122,7 @@ async def llm(
                 )
                 for _, tool_call in current_tool_calls.items():
                     tool_name = tool_call["function"]["name"]
-                    logger.info(f"[调用工具：[{tool_name}]]")
+                    logger.info(f"[调用工具：[{tool_name}({tool_call['function']['arguments']})]]")
                     if tool_name in tool_handlers:
                         handler = tool_handlers[tool_name]
                         arguments = json.loads(tool_call["function"]["arguments"])

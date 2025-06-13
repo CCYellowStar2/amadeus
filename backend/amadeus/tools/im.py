@@ -90,6 +90,23 @@ class QQChat:
         return True
 
     @auto_tool_spec(
+        name="ban",
+        description="禁言用户（秒）。适用于：用户发言不当/刷屏/恶意攻击",
+    )
+    async def set_group_ban(
+        self,
+        user_id: int,
+        duration: int = 300,
+    ):
+        if self.chat_type != "group":
+            raise ValueError("只能在群聊中使用禁言功能")
+        return await self.client.set_group_ban(
+            self.target_id,
+            user_id,
+            duration,
+        )
+
+    @auto_tool_spec(
         name="no_reply",
         description="不回复。适用于：话题无关/无聊/不感兴趣；最后一条消息是你自己发的且无人回应你；讨论你不懂的话题",
     )
@@ -225,7 +242,7 @@ class QQChat:
         if self.chat_type == "private":
             usercard = await self.client.get_user_name(user_id)
 
-        return f"`{usercard}`" if usercard else f"`{user_id}`"
+        return f"`{usercard}({user_id})`" if usercard else f"`{user_id}`"
 
     async def decode_message_item(self, message):
         if message["type"] == "at":

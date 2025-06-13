@@ -34,6 +34,7 @@ class Config(pydantic.BaseModel):
     character: Character
     enable: bool
     enabled_groups: list[str]
+    enabled_tools: list[str] = pydantic.Field(default_factory=list)
 
 
 AMADEUS_CONFIG_ENV = "AMADEUS_CONFIG"
