@@ -2,7 +2,6 @@ from openai import AsyncOpenAI
 import asyncio
 import json
 import inspect
-from amadeus.common import sys_print
 from amadeus.config import AMADEUS_CONFIG
 from typing import (
     Dict,
@@ -16,6 +15,7 @@ from typing import (
     get_args,
 )
 from pydantic import BaseModel
+from loguru import logger
 
 
 async def llm(
@@ -27,7 +27,7 @@ async def llm(
     continue_on_tool_call=False,
     temperature=0.7,
 ) -> AsyncIterator[str]:
-    sys_print("[开始思考]")
+    logger.info("[开始思考]")
     tools = tools or []
     tool_specs = [t.tool_spec.model_dump(exclude_none=True) for t in tools]
     tool_handlers = {t.tool_spec.function.name: t for t in tools}
@@ -39,7 +39,7 @@ async def llm(
 
     try:
         for _ in range(20):
-            sys_print(
+            logger.debug(
                 f"======================= [思考中... 消息数: {len(messages)} 工具数: {len(tool_specs)}] ======================="
             )
             if not tool_specs:
@@ -67,7 +67,6 @@ async def llm(
             async for chunk in response:
                 if not chunk.choices:
                     continue
-                # sys_print(chunk)
 
                 choice = chunk.choices[0]
                 delta = choice.delta
@@ -123,7 +122,7 @@ async def llm(
                 )
                 for _, tool_call in current_tool_calls.items():
                     tool_name = tool_call["function"]["name"]
-                    sys_print(f"[调用工具：[{tool_name}]]")
+                    logger.info(f"[调用工具：[{tool_name}]]")
                     if tool_name in tool_handlers:
                         handler = tool_handlers[tool_name]
                         arguments = json.loads(tool_call["function"]["arguments"])
@@ -136,19 +135,19 @@ async def llm(
                                 "content": str(result),
                             }
                         )
-                        sys_print(f"[工具调用完成：{result}]")
+                        logger.info(f"[工具调用完成：{result}]")
 
                 if continue_on_tool_call:
                     continue
                 else:
-                    sys_print("[结束思考]")
+                    logger.info("[结束思考]")
                     break
             break
 
     except Exception:
         import traceback
 
-        sys_print("[发生错误]")
+        logger.info("[发生错误]")
         print(traceback.format_exc())
         if "response" in locals():
             print(locals()["response"])

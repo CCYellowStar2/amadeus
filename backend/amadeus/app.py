@@ -1,7 +1,7 @@
 import time
 import collections
 import asyncio
-from amadeus.common import sys_print
+from amadeus.common import gray, green
 from amadeus.llm import llm
 from amadeus.tools.im import QQChat
 from amadeus.config import AMADEUS_CONFIG
@@ -23,40 +23,42 @@ TARGET_STATE = collections.defaultdict(lambda: State())
 
 
 async def user_loop():
-    sys_print("用户消息监听器启动")
+    logger.info("主机器人循环启动")
     while True:
-        await asyncio.sleep(1)
-        for (chat_type, target_id), state in TARGET_STATE.items():
-            if state.last_view >= state.next_view:
-                continue
-            if state.next_view >= time.time():
-                continue
-            qq_chat = QQChat(
-                api_base=f"ws://localhost:{AMADEUS_CONFIG.send_port}",
-                chat_type=chat_type,
-                target_id=target_id,
-            )
-            content = await qq_chat.view_chat_context()
-            state.last_view = state.next_view
-
-            sys_print(content)
-            async for m in llm(
-                [
-                    {
-                        "role": "user",
-                        "content": content,
-                    }
-                ],
-                tools=[
-                    qq_chat.send_message,
-                    qq_chat.ignore,
-                    qq_chat.delete_message,
-                    # greater_than,
-                ],
-                continue_on_tool_call=False,
-                temperature=1,
-            ):
-                logger.info(m)
+        try:
+            await asyncio.sleep(1)
+            for (chat_type, target_id), state in TARGET_STATE.items():
+                if state.last_view >= state.next_view:
+                    continue
+                if state.next_view >= time.time():
+                    continue
+                qq_chat = QQChat(
+                    api_base=f"ws://localhost:{AMADEUS_CONFIG.send_port}",
+                    chat_type=chat_type,
+                    target_id=target_id,
+                )
+                content = await qq_chat.view_chat_context()
+                state.last_view = state.next_view
+                
+                async for m in llm(
+                    [
+                        {
+                            "role": "user",
+                            "content": content,
+                        }
+                    ],
+                    tools=[
+                        qq_chat.send_message,
+                        qq_chat.ignore,
+                        qq_chat.delete_message,
+                        # greater_than,
+                    ],
+                    continue_on_tool_call=False,
+                    temperature=1,
+                ):
+                    logger.info(green(m))
+        except Exception as e:
+            logger.error(f"主机器人循环异常: {e}")
 
 
 
@@ -140,7 +142,12 @@ async def message_handler(data):
     target_id = json_body.get("group_id", 0) or json_body.get("user_id", 0)
     msg_time = json_body.get("time", 0)
     if msg_time:
-        logger.info(f"收到消息: {target_type} {target_id} {msg_time} {json_body.get('message', '')}")
+        logger.info(
+            gray(
+                f"收到消息: {target_type} {target_id} at {msg_time}, "
+                f"内容: {json_body.get('message', '')}"
+            )
+        )
         TARGET_STATE[(target_type, target_id)].next_view = msg_time + DEBOUNCE_TIME
     return True
 

@@ -1,7 +1,7 @@
 from typing import Literal
 from datetime import datetime
 import yaml
-from amadeus.common import format_timestamp, sys_print
+from amadeus.common import format_timestamp
 from amadeus.executors.im import InstantMessagingClient
 from amadeus.llm import auto_tool_spec
 from amadeus.image import analyze_image, search_meme
@@ -40,15 +40,15 @@ class QQChat:
     )
     async def send_message(self, text: str, refer_msg_id: int = 0):
         if xml := parse_xml_element(text):
-            sys_print(f"解析到XML元素: {text}")
+            logger.info(f"解析到XML元素: {text}")
             refer_msg_id = 0
             if xml.name not in ["meme", "at"]:
-                sys_print(f"无法解析的XML元素: {xml.name}")
+                logger.info(f"无法解析的XML元素: {xml.name}")
                 return False
             # 获取xml的meaning属性
             meme_b64 = await search_meme(xml["meaning"])
             if not meme_b64:
-                sys_print(f"无法找到表情包: {xml['meaning']}")
+                logger.info(f"无法找到表情包: {xml['meaning']}")
                 return False
             message_body = [
                 {
@@ -241,7 +241,6 @@ class QQChat:
                 return f"> <引用消息 id={msg_id}/>\n> {refer_msg}\n"
             return ""
         if message["type"] == "image":
-            sys_print(yaml.dump(message, indent=2, allow_unicode=True))
             data = await analyze_image(message["data"]["url"])
             if data and data.get("meme", {}).get("meaning"):
                 meaning = data["meme"]["meaning"]
@@ -292,5 +291,5 @@ class QQChat:
 {message_content}
 """
         else:
-            sys_print(yaml.dump(data, indent=2, allow_unicode=True))
+            logger.info(yaml.dump(data, indent=2, allow_unicode=True))
             return "[无法解析的消息]"

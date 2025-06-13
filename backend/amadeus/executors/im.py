@@ -7,7 +7,7 @@ import asyncio
 import json
 
 import httpx
-from amadeus.common import sys_print, async_lru_cache, green
+from amadeus.common import async_lru_cache, green
 
 class Connector(abc.ABC):
     @abc.abstractmethod
@@ -147,10 +147,10 @@ class HttpConnector(Connector):
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
-            sys_print(f"HTTP error for action {action}: {e.response.status_code} {e.response.text}")
+            logger.error(f"HTTP error for action {action}: {e.response.status_code} {e.response.text}")
             return {"status": "failed", "retcode": e.response.status_code, "data": None, "message": e.response.text}
         except Exception as e:
-            sys_print(f"Error for action {action}: {e}")
+            logger.error(f"Error for action {action}: {e}")
             return {"status": "failed", "retcode": -1, "data": None, "message": str(e)}
 
     async def close(self):
@@ -183,7 +183,7 @@ class InstantMessagingClient:
 
     @async_lru_cache()
     async def get_group_name(self, group_id):
-        sys_print(f"获取群信息 {group_id}")
+        logger.info(f"获取群信息 {group_id}")
         response = await self.connector.call(
             "get_group_info",
             group_id=str(group_id),
@@ -192,33 +192,33 @@ class InstantMessagingClient:
             group_name = response["data"]["group_name"]
             return group_name
         else:
-            sys_print(f"获取群信息失败: {response}")
+            logger.error(f"获取群信息失败: {response}")
             return str(group_id)
 
     async def get_joined_groups(self):
-        sys_print("获取已加入的群")
+        logger.info("获取已加入的群")
         response = await self.connector.call(
             "get_group_list",
             no_cache=False,
         )
         if not (response and response.get("status") == "ok"):
-            sys_print(f"获取已加入的群失败: {response}")
+            logger.error(f"获取已加入的群失败: {response}")
             return []
         return response.get("data", [])
 
     @async_lru_cache(maxsize=1)
     async def get_login_info(self):
-        sys_print("获取自己信息")
+        logger.info("获取自己信息")
         response = await self.connector.call("get_login_info")
 
         if not (response and response.get("status") == "ok"):
-            sys_print(f"获取自己信息失败: {response}")
+            logger.error(f"获取自己信息失败: {response}")
             return None
         return response.get("data")
 
     @async_lru_cache()
     async def get_user_name(self, user_id):
-        sys_print(f"获取用户信息 {user_id}")
+        logger.info(f"获取用户信息 {user_id}")
         response = await self.connector.call(
             "get_stranger_info",
             user_id=str(user_id),
@@ -228,12 +228,12 @@ class InstantMessagingClient:
             nickname = response["data"].get("nickname")
             return remark or nickname or str(user_id)
         else:
-            sys_print(f"获取用户信息失败: {response}")
+            logger.error(f"获取用户信息失败: {response}")
             return str(user_id)
 
     @async_lru_cache()
     async def get_group_member_name(self, user_id, group_id):
-        sys_print(f"获取群成员信息 {user_id} {group_id}")
+        logger.info(f"获取群成员信息 {user_id} {group_id}")
         response = await self.connector.call(
             "get_group_member_info",
             group_id=str(group_id),
@@ -246,11 +246,11 @@ class InstantMessagingClient:
             nickname = data.get("nickname")
             return group_card or nickname or str(user_id)
         else:
-            sys_print(f"获取群成员信息失败: {response}")
+            logger.error(f"获取群成员信息失败: {response}")
             return str(user_id)
 
     async def send_message(self, message, target_type: str, target_id: int):
-        sys_print(f"发送消息 {target_type} {target_id}")
+        logger.info(f"发送消息 {target_type} {target_id}")
 
         action = None
         params = {"message": message}
@@ -262,7 +262,7 @@ class InstantMessagingClient:
             action = "send_private_msg"
             params["user_id"] = str(target_id)
         else:
-            sys_print("[未知消息类型]")
+            logger.info("[未知消息类型]")
             return
 
         response = await self.connector.call(action, **params)
@@ -270,7 +270,7 @@ class InstantMessagingClient:
         if response and response.get("status") == "ok":
             return response
         else:
-            sys_print(f"发送消息失败: {response}")
+            logger.error(f"发送消息失败: {response}")
             return False
 
     async def delete_message(self, message_id):
@@ -291,7 +291,7 @@ class InstantMessagingClient:
         if response and response.get("status") == "ok":
             return response.get("data")
         else:
-            sys_print(f"获取消息失败: {response}")
+            logger.error(f"获取消息失败: {response}")
             return None
 
     async def get_chat_history(
@@ -320,5 +320,5 @@ class InstantMessagingClient:
         if response and response.get("status") == "ok":
             return response.get("data", {}).get("messages", [])
 
-        sys_print(f"获取{target_type}消息失败: {response}")
+        logger.error(f"获取{target_type}消息失败: {response}")
         return []

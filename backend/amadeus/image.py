@@ -5,7 +5,8 @@ import base64
 import ssl
 from amadeus.const import CACHE_DIR
 from amadeus.config import AMADEUS_CONFIG
-from amadeus.common import async_lru_cache, sys_print
+from amadeus.common import async_lru_cache
+from loguru import logger
 import httpx
 from PIL import Image
 
@@ -43,13 +44,13 @@ MEME_MAP = {}
 
 
 async def analyze_image(image_url):
-    sys_print(f"[图片分析] 开始：{image_url}")
+    logger.info(f"[图片分析] 开始：{image_url}")
     url_hash = await get_image_url_hash(image_url)
     data_path_by_url = IMAGE_ANALYZE_CACHE / f"url_{url_hash}.json"
 
     if data_path_by_url.exists():
         with open(data_path_by_url, "r", encoding="utf-8") as f:
-            sys_print(f"[图片分析] URL命中缓存")
+            logger.info(f"[图片分析] URL命中缓存")
             return json.load(f)
 
     image_file = await get_image(image_url)
@@ -57,7 +58,7 @@ async def analyze_image(image_url):
     data_path_by_file = IMAGE_ANALYZE_CACHE / f"file_{file_hash}.json"
 
     if data_path_by_file.exists():
-        sys_print(f"[图片分析] 文件命中缓存")
+        logger.info(f"[图片分析] 文件命中缓存")
         with open(data_path_by_file, "r", encoding="utf-8") as f:
             return json.load(f)
 
@@ -89,10 +90,10 @@ async def analyze_image(image_url):
     ]
 }
 """
-    if is_gif(image_file):
-        image = await get_image(image_url, ext="gif")
-    else:
-        image = await get_thumbnail(image_url)
+    # if is_gif(image_file):
+    #     image = await get_image(image_url, ext="gif")
+    # else:
+    image = await get_thumbnail(image_url)
     image_b64 = await get_image_b64(image)
     messages = [
         {
@@ -129,11 +130,11 @@ async def analyze_image(image_url):
             if meaning not in MEME_MAP:
                 MEME_MAP[meaning] = []
             MEME_MAP[meaning].append(image_b64)
-        sys_print(f"[图片分析] 完成：{image_url}")
+        logger.info(f"[图片分析] 完成：{image_url}")
         return analyzed_image
     except json.JSONDecodeError:
         # Handle the case where the response is not valid JSON
-        sys_print(f"[图片分析] 失败：{image_url}")
+        logger.info(f"[图片分析] 失败：{image_url}")
         return None
 
 
@@ -260,7 +261,7 @@ async def search_meme(meaning: str):
                         MEME_MAP[meme_meaning].append(
                             await get_image_b64(str(thumbnail_path))
                         )
-        sys_print(f"[图片分析] 加载了 {len(MEME_MAP)} 个表情包")
+        logger.info(f"[图片分析] 加载了 {len(MEME_MAP)} 个表情包")
     if memes := MEME_MAP.get(meaning):
         return random.choice(memes)
 
