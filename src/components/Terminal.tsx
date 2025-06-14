@@ -20,7 +20,8 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
   useEffect(() => {
     if (window.api) {
       const cleanup = window.api.receive('backend-log', (log: string) => {
-        setLogs((prevLogs) => [...prevLogs, log]);
+        const decodedLog = decodeURIComponent(escape(log));
+        setLogs((prevLogs) => [...prevLogs, decodedLog]);
       });
 
       return cleanup;

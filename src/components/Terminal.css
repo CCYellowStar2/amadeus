@@ -23,6 +23,7 @@
   padding: 10px;
   overflow-y: auto;
   font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   box-sizing: border-box;
   height: 100%;
 }
