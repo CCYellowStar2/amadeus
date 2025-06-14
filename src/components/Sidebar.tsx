@@ -37,6 +37,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
     }
   }, [addItemState]);
 
+  // Auto-select first config class when loaded
+  useEffect(() => {
+    if (configClasses && !selectedClass && Object.keys(configClasses).length > 0) {
+      const firstClassName = Object.keys(configClasses)[0];
+      selectClass(firstClassName);
+    }
+  }, [configClasses, selectedClass, selectClass]);
+
   const handleSelectConfig = async (className: string, isSingleton: boolean) => {
     selectClass(className);
     if (!isSingleton) {

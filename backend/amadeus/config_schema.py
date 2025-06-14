@@ -22,7 +22,7 @@ apps:
         $dynamicEnum:
           source: characters
           valueField: name
-        description: 先去创建角色
+        description: 先去[创建角色](/characters)，然后在这里选择
         title: 使用角色
         type: string
       enabled_groups:
@@ -36,7 +36,7 @@ apps:
       send_port:
         title: 通信端口
         default: 3000
-        description: 填入onebot协议的ws服务器端口。正确配置后，Amadeus可以自动获取到已加的群号。
+        description: 填入onebot协议的ws服务器端口。正确配置后，Amadeus可以自动获取到已加的群号。更多信息请参考[OneBot标准](https://onebot.dev/)。
         maximum: 65535
         minimum: 1
         type: integer
@@ -155,10 +155,9 @@ model_providers:
           type: string
         suggestions: []
       readme:
-        title: 备注
+        title: 说明
         type: string
         format: markdown
-        description: 支持 Markdown 格式，可以使用 **粗体**、*斜体*、# 标题 等语法
     required:
     - name
     type: object
@@ -176,18 +175,18 @@ about:
         readOnly: true
       base_url:
         title: 项目主页
-        default: https://babeltower.cn/v1
+        default: https://github.com/ArcheMind/amadeus
         format: uri
         type: string
         readOnly: true
       authors:
         title: 作者
-        default: "babeltower"
+        default: "ArcheMind Group"
         type: string
         readOnly: true
       version:
         title: 版本
-        default: 0.1.0
+        default: 0.8.0
         type: string
         readOnly: true
       description:
@@ -209,7 +208,7 @@ about:
           3. 设置聊天账号
           4. 启用相关功能
           
-          > 更多信息请访问项目主页
+          更多信息请访问项目主页
         type: string
         format: markdown
         readOnly: true

@@ -5,10 +5,11 @@ import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Checkbox } from '../ui/Checkbox';
 import { Select } from '../ui/Select';
-import { Loader2, Plus, Trash2, ChevronUp, ChevronDown, Edit3, Save, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, ChevronUp, ChevronDown, Edit3, Save, X, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/utils';
+import { useStore } from '../../store';
 
 // Add type declaration for window.electronAPI
 declare global {
@@ -33,6 +34,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
   onCancel,
 }) => {
   const { t } = useTranslation();
+  const { selectClass, selectInstance } = useStore();
 
   const { register, handleSubmit: reactHookFormSubmit, setValue, watch, formState: { errors }, reset, control } = useForm({
     defaultValues: initialData,
@@ -133,18 +135,102 @@ const FormRenderer: React.FC<FormRendererProps> = ({
     return <div className="space-y-0.5">{elements}</div>;
   };
 
+  // 处理应用内导航
+  const handleInternalNavigation = (url: string) => {
+    // 解析路径，例如 "/characters" 或 "/characters/someInstance"
+    const path = url.startsWith('/') ? url.slice(1) : url;
+    const segments = path.split('/').filter(Boolean);
+    
+    if (segments.length > 0) {
+      const className = segments[0];
+      const instanceName = segments[1] || null;
+      
+      selectClass(className);
+      if (instanceName) {
+        selectInstance(instanceName);
+      } else {
+        selectInstance(null);
+      }
+    }
+  };
+
   // 处理行内 Markdown 格式
   const parseInlineMarkdown = (text: string): React.ReactNode => {
     if (!text) return text;
     
-    // 处理链接 [text](url)
-    let result: React.ReactNode = text.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      (_, linkText, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">${linkText}</a>`
-    );
+    // 先处理链接，但不直接替换为HTML
+    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = linkRegex.exec(text)) !== null) {
+      const [fullMatch, linkText, url] = match;
+      const beforeText = text.slice(lastIndex, match.index);
+      
+      // 添加链接前的文本
+      if (beforeText) {
+        parts.push(parseInlineFormats(beforeText));
+      }
+      
+      // 判断是内部链接还是外部链接
+      const isInternal = url.startsWith('/') && !url.startsWith('//');
+      const isExternal = /^https?:\/\//.test(url);
+      
+      if (isInternal) {
+        // 内部链接
+                 parts.push(
+           <button
+             key={match.index}
+             onClick={() => handleInternalNavigation(url)}
+             className="text-primary hover:underline cursor-pointer bg-transparent border-none p-0 font-inherit"
+           >
+             {parseInlineFormats(linkText)}
+           </button>
+         );
+      } else if (isExternal) {
+        // 外部链接
+        parts.push(
+          <a
+            key={match.index}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            {parseInlineFormats(linkText)}
+          </a>
+        );
+      } else {
+        // 其他链接（如 mailto:, tel: 等）
+        parts.push(
+          <a
+            key={match.index}
+            href={url}
+            className="text-primary hover:underline"
+          >
+            {parseInlineFormats(linkText)}
+          </a>
+        );
+      }
+      
+      lastIndex = match.index + fullMatch.length;
+    }
+    
+    // 添加最后剩余的文本
+    if (lastIndex < text.length) {
+      parts.push(parseInlineFormats(text.slice(lastIndex)));
+    }
+    
+    return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  // 处理其他行内格式（粗体、斜体、代码）
+  const parseInlineFormats = (text: string): React.ReactNode => {
+    if (!text) return text;
     
     // 处理粗体 **text**
-    result = String(result).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    let result: React.ReactNode = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     
     // 处理斜体 *text*
     result = String(result).replace(/\*([^*]+)\*/g, '<em>$1</em>');
@@ -427,6 +513,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
           t={t}
           handleFormSubmit={handleFormSubmit}
           readOnly={field.readOnly}
+          parseInlineMarkdown={parseInlineMarkdown}
         />;
 
       case 'string':
@@ -624,24 +711,42 @@ const FormRenderer: React.FC<FormRendererProps> = ({
         }
 
         const suggestions = field.suggestions || [];
+        const isUriField = field.format === 'uri';
+        const currentValue = value || field.default || '';
+        const isValidUrl = isUriField && currentValue && /^https?:\/\/.+/.test(currentValue);
 
         return (
           <div>
-            <Input
-              type="text"
-              id={fieldPath}
-              {...register(fieldPath, getValidationRules(field, key))}
-              value={value || field.default || ''}
-              placeholder={field.placeholder || ''}
-              className={cn(
-                error ? 'border-error' : '',
-                field.readOnly ? 'bg-muted/50 cursor-default' : ''
+            <div className="relative">
+              <Input
+                type="text"
+                id={fieldPath}
+                {...register(fieldPath, getValidationRules(field, key))}
+                value={currentValue}
+                placeholder={field.placeholder || ''}
+                className={cn(
+                  error ? 'border-error' : '',
+                  field.readOnly ? 'bg-muted/50 cursor-default' : '',
+                  isUriField && isValidUrl ? 'pr-10' : ''
+                )}
+                onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+                onFocus={() => handleFieldFocus(fieldPath)}
+                onBlur={() => handleFieldBlur(fieldPath)}
+                readOnly={field.readOnly}
+              />
+              {isUriField && isValidUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open(currentValue, '_blank', 'noopener,noreferrer')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                  title="访问链接"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
               )}
-              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
-              onFocus={() => handleFieldFocus(fieldPath)}
-              onBlur={() => handleFieldBlur(fieldPath)}
-              readOnly={field.readOnly}
-            />
+            </div>
             {suggestions.length > 0 && !field.readOnly && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {suggestions.map((item: any, index: number) => {
@@ -726,7 +831,9 @@ const FormRenderer: React.FC<FormRendererProps> = ({
                   {field.required?.includes(subKey) && <span className="text-error ml-1">*</span>}
                 </label>
                 {subField.description && (
-                  <p className="text-xs text-muted-foreground mb-2">{subField.description}</p>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    {parseInlineMarkdown(subField.description)}
+                  </div>
                 )}
                 {renderField(subKey, subField, fieldPath)}
                 {errors[`${fieldPath}.${subKey}`] && (
@@ -767,7 +874,9 @@ const FormRenderer: React.FC<FormRendererProps> = ({
             {isFieldRequired(key) && <span className="text-error ml-1">*</span>}
           </label>
           {field.description && (
-            <p className="text-xs text-muted-foreground mb-2">{field.description}</p>
+            <div className="text-xs text-muted-foreground mb-2">
+              {parseInlineMarkdown(field.description)}
+            </div>
           )}
           <div className="relative">
             {renderField(key, field)}
@@ -796,6 +905,7 @@ interface ArrayFieldProps {
   t: (key: string, options?: any) => string;
   handleFormSubmit: (data: any) => void;
   readOnly?: boolean;
+  parseInlineMarkdown: (text: string) => React.ReactNode;
 }
 
 const ArrayField: React.FC<ArrayFieldProps> = ({
@@ -811,7 +921,8 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
   isFieldRequired,
   t,
   handleFormSubmit,
-  readOnly = false
+  readOnly = false,
+  parseInlineMarkdown
 }) => {
   const { fields, append, remove, move } = useFieldArray({
     control,
@@ -1097,7 +1208,9 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
                         {field.items.required?.includes(subKey) && <span className="text-error ml-1">*</span>}
                       </label>
                       {subField.description && (
-                        <p className="text-xs text-muted-foreground mb-2">{subField.description}</p>
+                        <div className="text-xs text-muted-foreground mb-2">
+                          {parseInlineMarkdown(subField.description)}
+                        </div>
                       )}
                       {renderField(subKey, subField, `${fieldPath}.${index}`)}
                       {subError && (
