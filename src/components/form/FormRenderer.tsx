@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Checkbox } from '../ui/Checkbox';
+import { Switch } from '../ui/Switch';
 import { Select } from '../ui/Select';
 import { Loader2, Plus, Trash2, ChevronUp, ChevronDown, Edit3, Save, X, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -798,10 +799,10 @@ const FormRenderer: React.FC<FormRendererProps> = ({
       
       case 'boolean':
         return (
-          <Checkbox
+          <Switch
             id={fieldPath}
             {...register(fieldPath, getValidationRules(field, key))}
-            defaultChecked={value ?? field.default ?? false}
+            checked={value ?? field.default ?? false}
             onChange={(e) => {
               const newValue = e.target.checked;
               setValue(fieldPath, newValue, {
@@ -809,7 +810,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
                 shouldValidate: true,
                 shouldTouch: true
               });
-              // 立即提交 checkbox 的变化
+              // 立即提交 switch 的变化
               const formValues = watch();
               handleFormSubmit({ ...formValues, [fieldPath]: newValue });
             }}
