@@ -114,7 +114,8 @@ class ConfigRouter:
 
     async def _update_config_data(self, new_data: Dict[str, Any]):
         """Update the configuration data using the data setter."""
-        await self._data_setter(new_data)
+        changed = await self._data_setter(new_data)
+        return not changed
 
     def register_schema_enhancer(self, class_name: str, enhancer):
         """
@@ -366,8 +367,13 @@ class ConfigRouter:
             for i, instance in enumerate(existing_instances):
                 if instance.get("name") == instance_name:
                     current_data[class_name][i] = instance_data
-                    await self._update_config_data(current_data)
-                    return instance_data
+                    if await self._update_config_data(current_data):
+                        return instance_data
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            json={"detail": f"Update of instance '{instance_name}' failed"},
+                        )
 
             raise HTTPException(
                 status_code=404, detail=f"Instance '{instance_name}' not found"
@@ -397,8 +403,13 @@ class ConfigRouter:
             for i, instance in enumerate(existing_instances):
                 if instance.get("name") == instance_name:
                     del current_data[class_name][i]
-                    await self._update_config_data(current_data)
-                    return {"status": "success"}
+                    if await self._update_config_data(current_data):
+                        return {"status": "success"}
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Deletion of instance '{instance_name}' failed",
+                        )
 
             raise HTTPException(
                 status_code=404, detail=f"Instance '{instance_name}' not found"
@@ -443,6 +454,10 @@ class ConfigRouter:
             # Get current data and update
             current_data = self.config_data
             current_data[class_name] = data
-            await self._update_config_data(current_data)
-
-            return data
+            if await self._update_config_data(current_data):
+                return data
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Update of singleton '{class_name}' failed",
+                )

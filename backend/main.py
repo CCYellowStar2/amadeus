@@ -162,8 +162,9 @@ config_persistence = ConfigPersistence(EXAMPLE_CONFIG)
 
 async def save_config_data(config_data: dict):
     logger.info("Updating configuration data.")
-    await ProcessManager.apply_config(config_data)
-    config_persistence.save(config_data)
+    modified_config_data, config_changed = await ProcessManager.apply_config(config_data)
+    config_persistence.save(modified_config_data)
+    return config_changed
 
 
 # Initialize the config router with schema and data getter/setter
@@ -435,6 +436,51 @@ def digest_config_data(config_data):
     return resolved_apps
 
 
+async def start_and_watch_app(app_hash, app_detail):
+    app_yaml = app_detail["yaml"]
+    app_name = app_detail["name"]
+
+    logger.info(f"Attempting to start service for app '{app_name}'.")
+
+    log_queue = multiprocessing.Queue()
+
+    process = multiprocessing.Process(
+        target=run_app_process,
+        args=(app_yaml, app_name, log_queue),
+        name=f"amadeus-app-{app_name}",
+        daemon=False,
+    )
+    process.start()
+
+    await asyncio.sleep(3)
+
+    if not process.is_alive():
+        logger.error(
+            f"Service for app '{app_name}' terminated prematurely within 3 seconds of start."
+        )
+        try:
+            process.join(timeout=1)
+        except Exception as e:
+            logger.error(f"Error joining premature process for '{app_name}': {e}")
+
+        return {
+            "app_hash": app_hash,
+            "app_name": app_name,
+            "success": False,
+            "process": None,
+            "log_queue": None,
+        }
+    else:
+        logger.info(f"Service for app '{app_name}' seems to have started successfully.")
+        return {
+            "app_hash": app_hash,
+            "app_name": app_name,
+            "success": True,
+            "process": process,
+            "log_queue": log_queue,
+        }
+
+
 class ProcessControl:
     def __init__(self, app_name):
         self.app_name = app_name
@@ -550,6 +596,8 @@ class ProcessManager:
         to_remove_hashes = prev_process_hashes - current_app_hashes
         to_add_hashes = current_app_hashes - prev_process_hashes
 
+        config_changed = False
+
         for app_hash in to_remove_hashes:
             if app_hash in cls.processes:
                 # Retrieve app_name if stored, otherwise use hash
@@ -562,32 +610,35 @@ class ProcessManager:
                 await cls.processes[app_hash].terminate()
                 del cls.processes[app_hash]
 
-        for app_hash in to_add_hashes:
-            app_detail = app_info_map[app_hash]
-            app_yaml = app_detail["yaml"]
-            app_name = app_detail["name"]
+        if to_add_hashes:
+            tasks = [
+                start_and_watch_app(app_hash, app_info_map[app_hash])
+                for app_hash in to_add_hashes
+            ]
+            startup_results = await asyncio.gather(*tasks)
 
-            logger.info(f"Starting service for app '{app_name}'.")
-
-            # 创建日志队列用于进程间通信
-            log_queue = multiprocessing.Queue()
-            
-            # 创建并启动multiprocessing.Process
-            process = multiprocessing.Process(
-                target=run_app_process,
-                args=(app_yaml, app_name, log_queue),
-                name=f"amadeus-app-{app_name}",
-                daemon=False
-            )
-            process.start()
-            
-            # 创建ProcessControl实例并启动日志流
-            cls.processes[app_hash] = await ProcessControl(app_name).start(process, log_queue)
+            for result in startup_results:
+                if result["success"]:
+                    pc = await ProcessControl(result["app_name"]).start(
+                        result["process"], result["log_queue"]
+                    )
+                    cls.processes[result["app_hash"]] = pc
+                else:
+                    config_changed = True
+                    for app_config_item in config_data.get("apps", []):
+                        if app_config_item.get("name") == result["app_name"]:
+                            app_config_item["enable"] = False
+                            logger.info(
+                                f"App '{result['app_name']}' has been disabled in the configuration due to startup failure."
+                            )
+                            break
 
         logger.info(f"System status: {len(cls.processes)} service(s) now running.")
 
         if cls.watcher is None:
             cls.watcher = asyncio.create_task(cls.watch_processes())
+
+        return config_data, config_changed
 
     @classmethod
     async def watch_processes(cls):

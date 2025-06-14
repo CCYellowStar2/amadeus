@@ -37,7 +37,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
   const { t } = useTranslation();
   const { selectClass, selectInstance } = useStore();
 
-  const { register, handleSubmit: reactHookFormSubmit, setValue, watch, formState: { errors }, reset, control } = useForm({
+  const { register, handleSubmit: reactHookFormSubmit, setValue, watch, formState: { errors, isSubmitting }, reset, control } = useForm({
     defaultValues: initialData,
     mode: 'onSubmit',
     reValidateMode: 'onChange'
@@ -55,12 +55,21 @@ const FormRenderer: React.FC<FormRendererProps> = ({
 
   // 只记录当前焦点的字段路径
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  // 记录正在加载中的 switch
+  const [loadingSwitch, setLoadingSwitch] = useState<string | null>(null);
   // 使用单个定时器
   const timerRef = useRef<NodeJS.Timeout>();
   // 记录正在编辑的 markdown 字段
   const [editingMarkdown, setEditingMarkdown] = useState<{[key: string]: boolean}>({});
   // 记录编辑前的值，用于取消编辑
   const [markdownBackups, setMarkdownBackups] = useState<{[key: string]: string}>({});
+
+  // 当提交状态改变时，清除 loading switch
+  useEffect(() => {
+    if (!isSubmitting) {
+      setLoadingSwitch(null);
+    }
+  }, [isSubmitting]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -719,22 +728,22 @@ const FormRenderer: React.FC<FormRendererProps> = ({
         return (
           <div>
             <div className="relative">
-              <Input
-                type="text"
-                id={fieldPath}
-                {...register(fieldPath, getValidationRules(field, key))}
+            <Input
+              type="text"
+              id={fieldPath}
+              {...register(fieldPath, getValidationRules(field, key))}
                 value={currentValue}
-                placeholder={field.placeholder || ''}
+              placeholder={field.placeholder || ''}
                 className={cn(
                   error ? 'border-error' : '',
                   field.readOnly ? 'bg-muted/50 cursor-default' : '',
                   isUriField && isValidUrl ? 'pr-10' : ''
                 )}
-                onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
-                onFocus={() => handleFieldFocus(fieldPath)}
-                onBlur={() => handleFieldBlur(fieldPath)}
+              onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+              onFocus={() => handleFieldFocus(fieldPath)}
+              onBlur={() => handleFieldBlur(fieldPath)}
                 readOnly={field.readOnly}
-              />
+            />
               {isUriField && isValidUrl && (
                 <Button
                   type="button"
@@ -798,6 +807,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
         );
       
       case 'boolean':
+        const isLoading = loadingSwitch === fieldPath;
         return (
           <Switch
             id={fieldPath}
@@ -810,11 +820,17 @@ const FormRenderer: React.FC<FormRendererProps> = ({
                 shouldValidate: true,
                 shouldTouch: true
               });
+              
+              if (newValue) {
+                setLoadingSwitch(fieldPath);
+              }
+
               // 立即提交 switch 的变化
               const formValues = watch();
               handleFormSubmit({ ...formValues, [fieldPath]: newValue });
             }}
             disabled={field.readOnly}
+            isLoading={isLoading}
           />
         );
       
@@ -1160,40 +1176,40 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
                   {field.items.title || `${t('common.item')} ${index + 1}`}
                 </h4>
                 {!readOnly && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex flex-col gap-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleMove(index, index - 1)}
-                        disabled={index === 0}
-                        className="p-1 h-8 w-8"
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleMove(index, index + 1)}
-                        disabled={index === fields.length - 1}
-                        className="p-1 h-8 w-8"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                    </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => handleRemove(index)}
-                      disabled={!canRemove}
-                      className="p-1 h-8 w-8 text-error hover:text-error"
+                      onClick={() => handleMove(index, index - 1)}
+                      disabled={index === 0}
+                      className="p-1 h-8 w-8"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleMove(index, index + 1)}
+                      disabled={index === fields.length - 1}
+                      className="p-1 h-8 w-8"
+                    >
+                      <ChevronDown className="h-4 w-4" />
                     </Button>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRemove(index)}
+                    disabled={!canRemove}
+                    className="p-1 h-8 w-8 text-error hover:text-error"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
                 )}
               </div>
               
@@ -1237,28 +1253,28 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
 
       {/* Add button */}
       {!readOnly && (
-        <div className="flex justify-between items-center">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              append(getDefaultArrayItemValue(field.items));
-              handleArrayChange();
-            }}
-            disabled={!canAddMore}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            {field.addText || t('array.add', { name: field.items.title || t('common.item') })}
-          </Button>
-          
-          {/* Array info */}
-          <div className="text-xs text-muted-foreground">
-            {fields.length} {t('array.itemCount', { count: fields.length })}
-            {field.minItems !== undefined && ` (${t('array.min')}: ${field.minItems})`}
-            {field.maxItems !== undefined && ` (${t('array.max')}: ${field.maxItems})`}
-          </div>
+      <div className="flex justify-between items-center">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            append(getDefaultArrayItemValue(field.items));
+            handleArrayChange();
+          }}
+          disabled={!canAddMore}
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          {field.addText || t('array.add', { name: field.items.title || t('common.item') })}
+        </Button>
+        
+        {/* Array info */}
+        <div className="text-xs text-muted-foreground">
+          {fields.length} {t('array.itemCount', { count: fields.length })}
+          {field.minItems !== undefined && ` (${t('array.min')}: ${field.minItems})`}
+          {field.maxItems !== undefined && ` (${t('array.max')}: ${field.maxItems})`}
         </div>
+      </div>
       )}
       
       {/* Read-only array info */}
