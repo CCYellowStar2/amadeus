@@ -5,7 +5,7 @@ import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
 import { Checkbox } from '../ui/Checkbox';
 import { Select } from '../ui/Select';
-import { Loader2, Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Loader2, Plus, Trash2, ChevronUp, ChevronDown, Edit3, Save, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/utils';
@@ -44,6 +44,9 @@ const FormRenderer: React.FC<FormRendererProps> = ({
   useEffect(() => {
     if (initialData) {
       reset(initialData);
+      // 重置 markdown 编辑状态
+      setEditingMarkdown({});
+      setMarkdownBackups({});
     }
   }, [initialData, reset]);
 
@@ -51,6 +54,10 @@ const FormRenderer: React.FC<FormRendererProps> = ({
   const [focusedField, setFocusedField] = useState<string | null>(null);
   // 使用单个定时器
   const timerRef = useRef<NodeJS.Timeout>();
+  // 记录正在编辑的 markdown 字段
+  const [editingMarkdown, setEditingMarkdown] = useState<{[key: string]: boolean}>({});
+  // 记录编辑前的值，用于取消编辑
+  const [markdownBackups, setMarkdownBackups] = useState<{[key: string]: string}>({});
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -60,6 +67,98 @@ const FormRenderer: React.FC<FormRendererProps> = ({
       }
     };
   }, []);
+
+  // 简单的 Markdown 文本处理函数
+  const renderSimpleMarkdown = (text: string) => {
+    if (!text) return null;
+    
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    
+    lines.forEach((line, index) => {
+      const trimmedLine = line.trim();
+      
+      if (trimmedLine.startsWith('# ')) {
+        elements.push(
+          <h3 key={index} className="text-sm font-medium mt-3 mb-1.5 text-foreground">
+            {trimmedLine.slice(2)}
+          </h3>
+        );
+      } else if (trimmedLine.startsWith('## ')) {
+        elements.push(
+          <h4 key={index} className="text-sm font-medium mt-2.5 mb-1 text-foreground">
+            {trimmedLine.slice(3)}
+          </h4>
+        );
+      } else if (trimmedLine.startsWith('### ')) {
+        elements.push(
+          <h5 key={index} className="text-xs font-medium mt-2 mb-1 text-foreground">
+            {trimmedLine.slice(4)}
+          </h5>
+        );
+      } else if (trimmedLine.startsWith('- ')) {
+        elements.push(
+          <div key={index} className="flex items-start gap-2 ml-3 my-0.5">
+            <span className="text-muted-foreground mt-0.5 text-xs">•</span>
+            <span className="text-sm">{parseInlineMarkdown(trimmedLine.slice(2))}</span>
+          </div>
+        );
+      } else if (trimmedLine.startsWith('1. ') || /^\d+\. /.test(trimmedLine)) {
+        const match = trimmedLine.match(/^(\d+)\. (.+)$/);
+        if (match) {
+          elements.push(
+            <div key={index} className="flex items-start gap-2 ml-3 my-0.5">
+              <span className="text-muted-foreground mt-0.5 text-xs">{match[1]}.</span>
+              <span className="text-sm">{parseInlineMarkdown(match[2])}</span>
+            </div>
+          );
+        }
+      } else if (trimmedLine.startsWith('> ')) {
+        elements.push(
+          <div key={index} className="border-l-2 border-primary/40 pl-3 py-1 my-1.5 bg-muted/20 italic text-sm">
+            {parseInlineMarkdown(trimmedLine.slice(2))}
+          </div>
+        );
+      } else if (trimmedLine === '') {
+        elements.push(<div key={index} className="my-1" />);
+      } else {
+        elements.push(
+          <p key={index} className="my-0.5 text-sm leading-relaxed">
+            {parseInlineMarkdown(line)}
+          </p>
+        );
+      }
+    });
+    
+    return <div className="space-y-0.5">{elements}</div>;
+  };
+
+  // 处理行内 Markdown 格式
+  const parseInlineMarkdown = (text: string): React.ReactNode => {
+    if (!text) return text;
+    
+    // 处理链接 [text](url)
+    let result: React.ReactNode = text.replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      (_, linkText, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">${linkText}</a>`
+    );
+    
+    // 处理粗体 **text**
+    result = String(result).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    
+    // 处理斜体 *text*
+    result = String(result).replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    
+    // 处理行内代码 `code`
+    result = String(result).replace(/`([^`]+)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs font-mono">$1</code>');
+    
+    // 如果包含 HTML 标签，使用 dangerouslySetInnerHTML
+    if (String(result).includes('<')) {
+      return <span dangerouslySetInnerHTML={{ __html: String(result) }} />;
+    }
+    
+    return result;
+  };
 
   // 创建一个处理提交的函数
   const handleFormSubmit = reactHookFormSubmit(
@@ -299,10 +398,14 @@ const FormRenderer: React.FC<FormRendererProps> = ({
           {...register(fieldPath, getValidationRules(field, key))}
           value={value || field.default || ''}
           placeholder={field.placeholder || t('common.pleaseSelect')}
-          className={error ? 'border-error' : ''}
+          className={cn(
+            error ? 'border-error' : '',
+            field.readOnly ? 'bg-muted/50 cursor-default' : ''
+          )}
           onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
           onFocus={() => handleFieldFocus(fieldPath)}
           onBlur={() => handleFieldBlur(fieldPath)}
+          readOnly={field.readOnly}
         />
       );
     }
@@ -323,6 +426,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
           isFieldRequired={isFieldRequired}
           t={t}
           handleFormSubmit={handleFormSubmit}
+          readOnly={field.readOnly}
         />;
 
       case 'string':
@@ -337,7 +441,118 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
               onFocus={() => handleFieldFocus(fieldPath)}
               onBlur={() => handleFieldBlur(fieldPath)}
+              readOnly={field.readOnly}
             />
+          );
+        }
+
+        if (field.format === 'markdown') {
+          const isEditing = editingMarkdown[fieldPath] || false;
+          const currentValue = value || field.default || '';
+
+          const handleStartEdit = () => {
+            // 保存当前值作为备份
+            setMarkdownBackups(prev => ({ ...prev, [fieldPath]: currentValue }));
+            setEditingMarkdown(prev => ({ ...prev, [fieldPath]: true }));
+          };
+
+          const handleSaveEdit = () => {
+            setEditingMarkdown(prev => ({ ...prev, [fieldPath]: false }));
+            // 清除备份
+            setMarkdownBackups(prev => {
+              const newBackups = { ...prev };
+              delete newBackups[fieldPath];
+              return newBackups;
+            });
+            const formValues = watch();
+            handleFormSubmit(formValues);
+          };
+
+          const handleCancelEdit = () => {
+            // 恢复到备份的值
+            const backupValue = markdownBackups[fieldPath] || '';
+            setValue(fieldPath, backupValue);
+            setEditingMarkdown(prev => ({ ...prev, [fieldPath]: false }));
+            // 清除备份
+            setMarkdownBackups(prev => {
+              const newBackups = { ...prev };
+              delete newBackups[fieldPath];
+              return newBackups;
+            });
+          };
+
+          if (field.readOnly || !isEditing) {
+            return (
+              <div className="relative group">
+                <div className={cn(
+                  "min-h-[60px] p-3 rounded-md border text-sm mb-4",
+                  field.readOnly 
+                    ? "bg-muted/20 border-muted/40 text-muted-foreground" 
+                    : "bg-muted/10 border-muted/30 hover:bg-muted/20 hover:border-muted/50 transition-colors"
+                )}>
+                  {currentValue ? renderSimpleMarkdown(currentValue) : (
+                    <p className="text-muted-foreground italic text-sm">
+                      {field.placeholder || '暂无内容'}
+                    </p>
+                  )}
+                </div>
+                {!field.readOnly && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStartEdit}
+                    className="absolute top-2 right-2 h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-2">
+              <div className="relative">
+                <Textarea
+                  id={fieldPath}
+                  {...register(fieldPath, getValidationRules(field, key))}
+                  value={value || field.default || ''}
+                  placeholder={field.placeholder || '请输入 Markdown 格式的内容...'}
+                  className={cn(
+                    error ? 'border-error' : '',
+                    'font-mono text-sm pr-20'
+                  )}
+                  onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
+                  onFocus={() => handleFieldFocus(fieldPath)}
+                  onBlur={() => handleFieldBlur(fieldPath)}
+                  rows={12}
+                />
+                <div className="absolute top-2 right-2 flex gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveEdit}
+                    className="h-8 w-8 p-0 bg-green-50 hover:bg-green-100"
+                  >
+                    <Save className="h-4 w-4 text-green-600" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelEdit}
+                    className="h-8 w-8 p-0 bg-red-50 hover:bg-red-100"
+                  >
+                    <X className="h-4 w-4 text-red-600" />
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                支持 Markdown 格式：**粗体**、*斜体*、# 标题、- 列表、{'> 引用'}、[链接](URL) 等
+              </p>
+            </div>
           );
         }
         
@@ -350,7 +565,11 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               {...register(fieldPath, getValidationRules(field, key))}
               value={options.some((o: { value: any; }) => o.value === val) ? String(val ?? '') : ''}
               onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
-              className={error ? 'border-error' : ''}
+              className={cn(
+                error ? 'border-error' : '',
+                field.readOnly ? 'bg-muted/50 cursor-default' : ''
+              )}
+              disabled={field.readOnly}
             >
               <option value="" disabled>{field.placeholder || t('common.pleaseSelect')}</option>
               {options.map((option: { value: string; label: string }) => (
@@ -370,7 +589,11 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               {...register(fieldPath, getValidationRules(field, key))}
               value={field.enum.includes(val) ? String(val ?? '') : ''}
               onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
-              className={error ? 'border-error' : ''}
+              className={cn(
+                error ? 'border-error' : '',
+                field.readOnly ? 'bg-muted/50 cursor-default' : ''
+              )}
+              disabled={field.readOnly}
             >
               <option value="" disabled>{field.placeholder || t('common.pleaseSelect')}</option>
               {field.enum.map((value: string, index: number) => (
@@ -395,6 +618,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               onFocus={() => handleFieldFocus(fieldPath)}
               onBlur={() => handleFieldBlur(fieldPath)}
               autoComplete="new-password"
+              readOnly={field.readOnly}
             />
           );
         }
@@ -409,12 +633,16 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               {...register(fieldPath, getValidationRules(field, key))}
               value={value || field.default || ''}
               placeholder={field.placeholder || ''}
-              className={error ? 'border-error' : ''}
+              className={cn(
+                error ? 'border-error' : '',
+                field.readOnly ? 'bg-muted/50 cursor-default' : ''
+              )}
               onChange={(e) => handleFieldChange(fieldPath, e.target.value)}
               onFocus={() => handleFieldFocus(fieldPath)}
               onBlur={() => handleFieldBlur(fieldPath)}
+              readOnly={field.readOnly}
             />
-            {suggestions.length > 0 && (
+            {suggestions.length > 0 && !field.readOnly && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {suggestions.map((item: any, index: number) => {
                   const { label, value: suggestionValue } = getExampleDisplay(item);
@@ -452,10 +680,14 @@ const FormRenderer: React.FC<FormRendererProps> = ({
             min={field.minimum}
             max={field.maximum}
             step={field.multipleOf || (field.type === 'integer' ? 1 : 'any')}
-            className={error ? 'border-error' : ''}
+            className={cn(
+              error ? 'border-error' : '',
+              field.readOnly ? 'bg-muted/50 cursor-default' : ''
+            )}
             onChange={(e) => handleFieldChange(fieldPath, field.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
             onFocus={() => handleFieldFocus(fieldPath)}
             onBlur={() => handleFieldBlur(fieldPath)}
+            readOnly={field.readOnly}
           />
         );
       
@@ -476,6 +708,7 @@ const FormRenderer: React.FC<FormRendererProps> = ({
               const formValues = watch();
               handleFormSubmit({ ...formValues, [fieldPath]: newValue });
             }}
+            disabled={field.readOnly}
           />
         );
       
@@ -511,7 +744,11 @@ const FormRenderer: React.FC<FormRendererProps> = ({
             id={fieldPath}
             {...register(fieldPath, getValidationRules(field, key))}
             value={value || field.default || ''}
-            className={error ? 'border-error' : ''}
+            className={cn(
+              error ? 'border-error' : '',
+              field.readOnly ? 'bg-muted/50 cursor-default' : ''
+            )}
+            readOnly={field.readOnly}
           />
         );
     }
@@ -558,6 +795,7 @@ interface ArrayFieldProps {
   isFieldRequired: (fieldName: string) => boolean;
   t: (key: string, options?: any) => string;
   handleFormSubmit: (data: any) => void;
+  readOnly?: boolean;
 }
 
 const ArrayField: React.FC<ArrayFieldProps> = ({
@@ -572,7 +810,8 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
   renderField,
   isFieldRequired,
   t,
-  handleFormSubmit
+  handleFormSubmit,
+  readOnly = false
 }) => {
   const { fields, append, remove, move } = useFieldArray({
     control,
@@ -700,7 +939,7 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
               <Badge
                 key={item.id}
                 variant="outline"
-                onRemove={canRemove ? () => {
+                onRemove={canRemove && !readOnly ? () => {
                   handleRemove(index);
                 } : undefined}
                 className="flex items-center gap-1 bg-primary/10 text-primary border-primary/40 hover:bg-primary/10 hover:border-primary/60 transition-all"
@@ -709,7 +948,7 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
               </Badge>
             );
           })}
-          {canAddMore && !options && (
+          {canAddMore && !options && !readOnly && (
             <input
               type="text"
               value={newItemValue}
@@ -722,7 +961,7 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
         </div>
 
         {/* 显示enum选项或suggestions */}
-        {(options || (suggestions.length > 0)) && (
+        {(options || (suggestions.length > 0)) && !readOnly && (
           <div className="flex flex-wrap gap-1.5">
             {[...(options || suggestions)]
               .sort((a: any, b: any) => {
@@ -766,13 +1005,13 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
         )}
         
         {/* Array info */}
-        {(field.minItems !== undefined || field.maxItems !== undefined || (!options && canAddMore)) && (
+        {(field.minItems !== undefined || field.maxItems !== undefined || (!options && canAddMore && !readOnly)) && (
           <div className="flex justify-between items-center text-xs text-muted-foreground">
             <div>
               {field.minItems !== undefined && `Min: ${field.minItems}`}
               {field.maxItems !== undefined && ` Max: ${field.maxItems}`}
             </div>
-            {canAddMore && !options && (
+            {canAddMore && !options && !readOnly && (
               <Button
                 type="button"
                 variant="ghost"
@@ -808,40 +1047,42 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
                 <h4 className="text-sm font-medium">
                   {field.items.title || `${t('common.item')} ${index + 1}`}
                 </h4>
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-col gap-1">
+                {!readOnly && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleMove(index, index - 1)}
+                        disabled={index === 0}
+                        className="p-1 h-8 w-8"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleMove(index, index + 1)}
+                        disabled={index === fields.length - 1}
+                        className="p-1 h-8 w-8"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => handleMove(index, index - 1)}
-                      disabled={index === 0}
-                      className="p-1 h-8 w-8"
+                      onClick={() => handleRemove(index)}
+                      disabled={!canRemove}
+                      className="p-1 h-8 w-8 text-error hover:text-error"
                     >
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleMove(index, index + 1)}
-                      disabled={index === fields.length - 1}
-                      className="p-1 h-8 w-8"
-                    >
-                      <ChevronDown className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleRemove(index)}
-                    disabled={!canRemove}
-                    className="p-1 h-8 w-8 text-error hover:text-error"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                )}
               </div>
               
               <div className="space-y-3">
@@ -881,28 +1122,37 @@ const ArrayField: React.FC<ArrayFieldProps> = ({
       )}
 
       {/* Add button */}
-      <div className="flex justify-between items-center">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            append(getDefaultArrayItemValue(field.items));
-            handleArrayChange();
-          }}
-          disabled={!canAddMore}
-          className="flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          {field.addText || t('array.add', { name: field.items.title || t('common.item') })}
-        </Button>
-        
-        {/* Array info */}
-        <div className="text-xs text-muted-foreground">
-          {fields.length} {t('array.itemCount', { count: fields.length })}
-          {field.minItems !== undefined && ` (${t('array.min')}: ${field.minItems})`}
-          {field.maxItems !== undefined && ` (${t('array.max')}: ${field.maxItems})`}
+      {!readOnly && (
+        <div className="flex justify-between items-center">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              append(getDefaultArrayItemValue(field.items));
+              handleArrayChange();
+            }}
+            disabled={!canAddMore}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            {field.addText || t('array.add', { name: field.items.title || t('common.item') })}
+          </Button>
+          
+          {/* Array info */}
+          <div className="text-xs text-muted-foreground">
+            {fields.length} {t('array.itemCount', { count: fields.length })}
+            {field.minItems !== undefined && ` (${t('array.min')}: ${field.minItems})`}
+            {field.maxItems !== undefined && ` (${t('array.max')}: ${field.maxItems})`}
+          </div>
         </div>
-      </div>
+      )}
+      
+      {/* Read-only array info */}
+      {readOnly && (
+        <div className="text-xs text-muted-foreground text-center">
+          {fields.length} {t('array.itemCount', { count: fields.length })}
+        </div>
+      )}
 
       {/* Array validation errors */}
       {arrayError && (

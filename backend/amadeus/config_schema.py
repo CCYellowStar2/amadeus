@@ -157,7 +157,8 @@ model_providers:
       readme:
         title: 备注
         type: string
-        format: textarea
+        format: markdown
+        description: 支持 Markdown 格式，可以使用 **粗体**、*斜体*、# 标题 等语法
     required:
     - name
     type: object
@@ -172,19 +173,46 @@ about:
         title: Amadeus
         default: Amadeus 是一个开源的聊天机器人框架，支持多种聊天协议。
         type: string
+        readOnly: true
       base_url:
         title: 项目主页
         default: https://babeltower.cn/v1
         format: uri
         type: string
+        readOnly: true
       authors:
         title: 作者
         default: "babeltower"
         type: string
+        readOnly: true
       version:
         title: 版本
         default: 0.1.0
         type: string
+        readOnly: true
+      description:
+        title: 项目介绍
+        default: |
+          Amadeus 聊天机器人框架
+
+          **功能特性**
+          
+          - **多协议支持**: 支持 QQ、微信等多种聊天协议
+          - **角色扮演**: 可创建不同个性的聊天角色
+          - **模型接入**: 支持多种 AI 模型提供商
+          - **群组管理**: 支持群聊功能和管理工具
+          
+          **快速开始**
+          
+          1. 配置模型源和 API Key
+          2. 创建聊天角色
+          3. 设置聊天账号
+          4. 启用相关功能
+          
+          > 更多信息请访问项目主页
+        type: string
+        format: markdown
+        readOnly: true
 """
 
 
@@ -197,7 +225,17 @@ model_providers:
   - doubao-1.5-vision
   - deepseek-v3
   - gemini-2.5-pro
-  readme: 无需账号，前往 https://babeltower.cn/ 微信扫码登陆即可使用。
+  readme: |
+    # 巴别塔 AI 服务
+    
+    **无需账号**，前往 [巴别塔官网](https://babeltower.cn/) 微信扫码登陆即可使用。
+    
+    ## 特点
+    - ✅ 免费使用
+    - ✅ 多模型支持
+    - ✅ 高速稳定
+    
+    适合新手用户快速体验 AI 功能。
 - name: 硅基流动
   base_url: https://api.siliconflow.cn/v1
   api_key: ""
@@ -207,12 +245,20 @@ model_providers:
 - name: 火山引擎
   base_url: https://ark.cn-beijing.volces.com/api/v3
   api_key: ""
-  readme: '火山引擎不支持自动获取模型列表。
-
-    使用前需前往 https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement
-    （复制链接粘贴到浏览器中访问）执行以下步骤：
-
-    1. 获取API Key 2. 启用模型 3. 获取模型名并填入上方启用模型处'
+  readme: |
+    # 火山引擎配置说明
+    
+    火山引擎不支持自动获取模型列表。
+    
+    ## 配置步骤
+    
+    使用前需前往 [火山引擎控制台](https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement) 执行以下步骤：
+    
+    1. **获取API Key** - 在控制台创建或获取您的API密钥
+    2. **启用模型** - 选择并启用您需要使用的模型
+    3. **配置模型名** - 获取模型名并填入上方启用模型处
+    
+    > ⚠️ **注意**: 请确保您已经在火山引擎控制台中启用了相应的模型，否则API调用会失败。
   models:
   - doubao-1.5-vision-lite-250315
   - deepseek-v3-250324
